@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HipCreep — UHMWPE Liner Creep Estimator</title>
+  <meta name="description" content="Analytic estimation of creep in UHMWPE acetabular liners and separation of creep and wear using HipWear results." />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="stylesheet" href="./src/styles/main.css" />
+</head>
+<body>
+  <header id="app-header">
+    <div class="header-left">
+      <img src="./favicon.svg" alt="" width="28" height="28" />
+      <h1>HipCreep</h1>
+      <span class="version" id="app-version">v0.1</span>
+    </div>
+    <div class="header-center" id="file-info">No HipWear file loaded — manual inputs</div>
+    <div class="header-right">
+      <button id="btn-theme" class="icon-btn" title="Toggle light / dark theme" aria-label="Toggle theme"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
+    </div>
+  </header>
+
+  <div id="app-layout">
+    <aside id="sidebar">
+      <div id="form-scroll"></div>
+      <div id="run-bar">
+        <button id="btn-run" class="btn primary">Run analysis</button>
+        <div class="progress"><div id="progress-bar"></div></div>
+        <div id="run-status" class="muted" style="margin-top:6px;font-size:11px;"></div>
+      </div>
+    </aside>
+    <main id="report"></main>
+  </div>
+  <div id="tooltip" class="tooltip hidden"></div>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

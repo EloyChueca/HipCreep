@@ -1,0 +1,182 @@
+// ============================================================
+// HipCreep — application entry point
+// ============================================================
+
+import { defaultCase, type CaseInput } from './model/case.ts';
+import { runDeterministic, runMonteCarlo } from './model/analysis.ts';
+import { analyseSurface, elevationAnalysis, type SurfaceData, type ElevationResult } from './model/surface.ts';
+import { parseHipWearInput, type LoadedHipWearCase } from './io/hipwear.ts';
+import { makePhantom } from './io/phantom.ts';
+import { buildForm, writeForm, readForm, syncEnabled, showMaterialPreset, defaultUi, type UiSettings } from './ui/form.ts';
+import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
+import { download, resultsCsv, resultsJson } from './ui/export.ts';
+import { escapeHtml, fmt } from './ui/format.ts';
+
+const VERSION = '0.1.0';
+
+let caseInput: CaseInput = defaultCase();
+let ui: UiSettings = defaultUi();
+let loaded: LoadedHipWearCase | null = null;
+let surfaceCache: { key: string; surface: SurfaceData; elevation: ElevationResult } | null = null;
+let lastReport: ReportData | null = null;
+let running = false;
+
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// ---------- theme ----------
+function applyTheme(t: string | null): void {
+  if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  else document.documentElement.removeAttribute('data-theme');
+}
+try { applyTheme(localStorage.getItem('hipcreep-theme')); } catch { /* storage unavailable */ }
+$('btn-theme').addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme')
+    ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { localStorage.setItem('hipcreep-theme', next); } catch { /* ignore */ }
+  if (lastReport) render(lastReport);
+});
+
+// ---------- form ----------
+$('app-version').textContent = `v${VERSION}`;
+buildForm($('form-scroll'));
+writeForm(caseInput, ui);
+renderEmpty($('report'));
+
+$('form-scroll').addEventListener('change', (ev) => {
+  const id = (ev.target as HTMLElement).id;
+  if (id === 'f-material') showMaterialPreset();
+  syncEnabled();
+});
+
+function setFileInfo(): void {
+  const box = $('file-box');
+  if (!loaded) {
+    $('file-info').textContent = 'No HipWear file loaded — manual inputs';
+    box.innerHTML = 'Manual inputs. Load a HipWear export to take the geometry, penetration and surface map from it.';
+    return;
+  }
+  const L = loaded;
+  $('file-info').textContent = `${L.name} — case ${L.caseId}`;
+  box.innerHTML = `<b>${escapeHtml(L.name)}</b><br/>
+    Head Ø ${fmt(L.headDiameterMm)} mm · commercial R ${fmt(L.commercialRadiusMm, 3)} mm${L.measuredRadiusMm ? ` · measured R ${fmt(L.measuredRadiusMm, 3)} mm${L.measuredRadiusReliable ? '' : ' (unreliable)'}` : ''}<br/>
+    ${L.measured ? `Penetration ${fmt(L.measured.penetrationUm)} ± ${fmt(L.measured.sdUm)} µm` : 'No penetration value'} ·
+    ${L.mesh ? `${(L.mesh.vertices.length / 3).toLocaleString('en-US')} vertices` : 'no mesh'} · noise σ ${fmt(L.noiseSigmaUm)} µm
+    ${L.warnings.length ? `<ul class="warn-list">${L.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul>` : ''}`;
+}
+
+function applyLoaded(L: LoadedHipWearCase): void {
+  loaded = L;
+  surfaceCache = null;
+  const c = readForm(caseInput, ui).c;
+  c.caseId = L.caseId;
+  if (L.implantMonths != null) c.implantMonths = +L.implantMonths.toFixed(3);
+  if (L.exVivoDays != null) c.exVivoDays = L.exVivoDays;
+  c.headDiameterMm = L.headDiameterMm;
+  if (L.material) c.material = L.material;
+  if (L.thicknessMm != null) c.thicknessMm = +L.thicknessMm.toFixed(3);
+  if (L.thicknessSdMm != null) c.thicknessSdMm = L.thicknessSdMm;
+  if (L.clearanceMm != null) {
+    const cl = +L.clearanceMm.toFixed(4);
+    c.clearance = { nominal: cl, lo: Math.max(0, +(cl - 0.03).toFixed(4)), hi: +(cl + 0.03).toFixed(4) };
+  }
+  if (L.loadAngleDeg != null) c.loadAngleDeg = +L.loadAngleDeg.toFixed(2);
+  c.measured = L.measured;
+  caseInput = c;
+  ui = { ...ui, manualMeasurement: !!L.measured };
+  writeForm(caseInput, ui);
+  setFileInfo();
+}
+
+$('file-input').addEventListener('change', async (ev) => {
+  const input = ev.target as HTMLInputElement;
+  const f = input.files?.[0];
+  if (!f) return;
+  try {
+    applyLoaded(parseHipWearInput(await f.text(), f.name));
+    $('run-status').textContent = 'File loaded. Review the inputs and run the analysis.';
+  } catch (e) {
+    $('run-status').textContent = `Could not read ${f.name}: ${(e as Error).message}`;
+  }
+  input.value = '';
+});
+
+$('btn-demo').addEventListener('click', () => {
+  applyLoaded(parseHipWearInput(JSON.stringify(makePhantom()), 'demo-phantom.json'));
+  void run();
+});
+$('btn-demo-download').addEventListener('click', () => download('hipcreep-demo-phantom.json', JSON.stringify(makePhantom(), null, 1)));
+$('btn-clear').addEventListener('click', () => {
+  loaded = null;
+  surfaceCache = null;
+  lastReport = null;
+  caseInput = defaultCase();
+  ui = defaultUi();
+  writeForm(caseInput, ui);
+  setFileInfo();
+  renderEmpty($('report'));
+  $('run-status').textContent = '';
+});
+
+// ---------- run ----------
+function surfaceFor(L: LoadedHipWearCase, u: UiSettings): { surface: SurfaceData; elevation: ElevationResult } | null {
+  if (!L.mesh) return null;
+  const R = u.refRadius === 'measured' && L.measuredRadiusMm ? L.measuredRadiusMm : L.commercialRadiusMm;
+  const key = `${R}|${u.rimBandDeg}`;
+  if (surfaceCache?.key === key) return surfaceCache;
+  const surface = analyseSurface(L.mesh, { center: L.center, radiusMm: R, pole: L.pole, load: L.load });
+  const elevation = elevationAnalysis(surface, L.noiseSigmaUm, L.surfaceUncertaintyUm, u.rimBandDeg);
+  surfaceCache = { key, surface, elevation };
+  return surfaceCache;
+}
+
+function render(d: ReportData): void {
+  const root = $('report');
+  const top = root.scrollTop;
+  renderReport(root, d);
+  const ex = document.createElement('section');
+  ex.className = 'section';
+  ex.innerHTML = `<h2>Export</h2><div class="export-row">
+    <button class="btn" id="btn-json">Results (JSON)</button>
+    <button class="btn" id="btn-csv">Summary (CSV)</button></div>`;
+  root.appendChild(ex);
+  $('btn-json').addEventListener('click', () => download(`hipcreep-${d.c.caseId}.json`, resultsJson(d, VERSION)));
+  $('btn-csv').addEventListener('click', () => download(`hipcreep-${d.c.caseId}.csv`, resultsCsv(d), 'text/csv'));
+  root.scrollTop = top;
+}
+
+async function run(): Promise<void> {
+  if (running) return;
+  running = true;
+  const btn = $<HTMLButtonElement>('btn-run');
+  btn.disabled = true;
+  const bar = $('progress-bar');
+  const status = $('run-status');
+  try {
+    const r = readForm(caseInput, ui);
+    caseInput = r.c;
+    ui = r.ui;
+    status.textContent = 'Deterministic table…';
+    bar.style.width = '2%';
+    await new Promise((res) => setTimeout(res, 10));
+    const det = runDeterministic(caseInput);
+    status.textContent = 'Monte Carlo…';
+    const mc = await runMonteCarlo(caseInput, (f) => { bar.style.width = `${(2 + 93 * f).toFixed(1)}%`; });
+    const surf = loaded ? surfaceFor(loaded, ui) : null;
+    bar.style.width = '100%';
+    lastReport = { c: caseInput, ui, det, mc, loaded, surface: surf?.surface ?? null, elevation: surf?.elevation ?? null };
+    render(lastReport);
+    status.textContent = `Done: ${mc.n} samples in ${(mc.elapsedMs / 1000).toFixed(1)} s.`;
+  } catch (e) {
+    console.error(e);
+    status.textContent = `Error: ${(e as Error).message}`;
+  } finally {
+    running = false;
+    btn.disabled = false;
+    setTimeout(() => { bar.style.width = '0'; }, 800);
+  }
+}
+
+$('btn-run').addEventListener('click', () => void run());
+setFileInfo();

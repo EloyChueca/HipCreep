@@ -1,0 +1,27 @@
+{
+  "name": "hipcreep",
+  "version": "0.1.0",
+  "description": "HipCreep — analytic creep estimation of UHMWPE acetabular liners and creep/wear separation using HipWear results",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "node --test \"tests/*.test.ts\"",
+    "deploy": "npm run build && npx wrangler pages deploy dist"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "~6.0.2",
+    "vite": "^7.3.1"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EloyChueca/HipCreep"
+  },
+  "author": "Eloy Chueca Ferrando"
+}
