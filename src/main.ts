@@ -12,7 +12,7 @@ import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -122,10 +122,14 @@ $('btn-clear').addEventListener('click', () => {
 // ---------- run ----------
 function surfaceFor(L: LoadedHipWearCase, u: UiSettings): { surface: SurfaceData; elevation: ElevationResult } | null {
   if (!L.mesh) return null;
-  const R = u.refRadius === 'measured' && L.measuredRadiusMm ? L.measuredRadiusMm : L.commercialRadiusMm;
-  const key = `${R}|${u.rimBandDeg}`;
+  // Each radius goes with the centre of its own fit: the measured radius with the free-radius
+  // sphere centre (when HipWear exports it), the commercial radius with the original sphere.
+  const useMeasured = u.refRadius === 'measured' && !!L.measuredRadiusMm;
+  const R = useMeasured ? L.measuredRadiusMm! : L.commercialRadiusMm;
+  const center = useMeasured && L.measuredCenter ? L.measuredCenter : L.center;
+  const key = `${R}|${center.join(',')}|${u.rimBandDeg}`;
   if (surfaceCache?.key === key) return surfaceCache;
-  const surface = analyseSurface(L.mesh, { center: L.center, radiusMm: R, pole: L.pole, load: L.load });
+  const surface = analyseSurface(L.mesh, { center, radiusMm: R, pole: L.pole, load: L.load });
   const elevation = elevationAnalysis(surface, L.noiseSigmaUm, L.surfaceUncertaintyUm, u.rimBandDeg);
   surfaceCache = { key, surface, elevation };
   return surfaceCache;

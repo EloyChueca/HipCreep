@@ -21,7 +21,7 @@ exported by HipWear is specified in [docs/HIPWEAR_EXPORT.md](docs/HIPWEAR_EXPORT
 ## Use
 
 1. Open the web app.
-2. Load a HipWear export (`hipcreep-input` JSON), or press **Demo case** (synthetic liner with known creep, wear and
+2. Load a HipWear export (HipWear → *Export* → **HipCreep Data (JSON)**), or press **Demo case** (synthetic liner with known creep, wear and
    noise), or type the inputs by hand.
 3. Check body mass, implantation time, head diameter, wall thickness, clearance, polyethylene, days ex vivo.
 4. **Run analysis** → results, maps, and JSON/CSV export.

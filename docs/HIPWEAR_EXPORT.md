@@ -1,5 +1,16 @@
 # HipWear → HipCreep input file (`hipcreep-input`, version 1)
 
+## How to export it from HipWear
+
+1. Analyse the liner in HipWear with **Two-Sphere Auto** (or *Compare all modes*: its Two-Sphere Auto pass is used).
+   Set **Years in vivo** before analysing.
+2. *Export* panel → **HipCreep Data (JSON)**.
+3. The dialog asks for the **days from explantation to scan** and the **polyethylene** grade (the last values are
+   remembered), then saves `<liner>_hipcreep.json`.
+4. In HipCreep: **Load HipWear file…** → **Run analysis**.
+
+## Format
+
 HipCreep reads one JSON file per liner, exported by HipWear after a **Two-Sphere Auto** analysis. All lengths in mm
 unless the key says `Um` (µm), angles in degrees. Unknown values may be omitted or set to `null`. Click
 **Demo file ⭳** in HipCreep to download a complete example.
@@ -8,13 +19,14 @@ unless the key says `Um` (µm), angles in degrees. Unknown values may be omitted
 {
   "format": "hipcreep-input",
   "version": 1,
-  "source": { "program": "HipWear", "programVersion": "1.0", "file": "SERH020.stl", "exportedAt": "2026-10-27T12:00:00Z" },
+  "source": { "program": "HipWear", "programVersion": "1.0", "file": "SERH020.stl", "exportedAt": "2026-10-27T12:00:00Z", "analysisMode": "two-sphere-auto" },
   "case": { "id": "SERH020", "yearsInVivo": 0.5, "daysExVivo": 30 },
   "implant": { "headDiameterMm": 28, "material": "conventional" },
   "geometry": {
     "commercialRadiusMm": 14.0,
     "measuredRadiusMm": 14.05,
     "measuredRadiusReliable": true,
+    "measuredCenter": [x, y, z],
     "originalCenter": [x, y, z],
     "displacedCenter": [x, y, z],
     "poleAxis": [x, y, z],
@@ -45,11 +57,12 @@ unless the key says `Um` (µm), angles in degrees. Unknown values may be omitted
 | `implant.material` | optional | **new input**: `virgin`, `conventional`, `hxlpe`, `vite-hxlpe` | creep factor, recovery |
 | `geometry.commercialRadiusMm` | **yes** | `TwoSphereResult.radius` | head radius |
 | `geometry.measuredRadiusMm`, `measuredRadiusReliable` | recommended | `WearVolumeResult.measuredRadius.radius`, `.reliable` | radial clearance; zero plane of the sphere → plane step |
+| `geometry.measuredCenter` | optional | `WearVolumeResult.measuredRadius.center` | centre that goes with the measured radius in the sphere → plane step |
 | `geometry.originalCenter` | **yes** | `TwoSphereResult.originalCenter` | centre for `r = |v − O|` |
 | `geometry.displacedCenter` | recommended | `TwoSphereResult.displacedCenter` | load (penetration) direction |
 | `geometry.poleAxis` | **yes** | `SeparationResult.cupAxis` (rim → pole) | map orientation, load angle |
 | `geometry.rimPlane` | optional | `RimPlaneResult.point`, `.normal` | (future: coverage) |
-| `geometry.wallThicknessMm` | recommended | wall-thickness computation of `MeshViewer` (inner ↔ outer surface), at the penetration point and mean/SD | through-wall creep |
+| `geometry.wallThicknessMm` | recommended | outer (back) surface of `SeparationResult.outer`: distance to the original centre minus the cavity radius, within 75° of the pole; mean, SD and median within 10° of the penetration direction | through-wall creep |
 | `geometry.outerShellRadiusMm` | fallback | `TwoSphereResult.outerShell.radius` | thickness = outer − inner radius |
 | `wear.linearWearUm`, `linearWearSdUm` | recommended | `TwoSphereResult.linearWearMm`, `.linearWearSdMm` (× 1000) | measured penetration D |
 | `wear.linearWearCorrectedUm`, `…SdUm` | optional | `TwoSphereResult.linearCorrectedMm`, `.linearCorrectedSdMm` | used instead of D when present |

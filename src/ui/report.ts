@@ -195,7 +195,9 @@ export function renderReport(root: HTMLElement, d: ReportData): void {
   // ---------- Elevations ----------
   if (d.elevation && d.surface) {
     const e = d.elevation;
-    const ref = d.ui.refRadius === 'measured' && d.loaded?.measuredRadiusMm ? `measured cavity radius ${fmt(d.loaded.measuredRadiusMm, 3)} mm` : `commercial radius ${fmt(d.loaded?.commercialRadiusMm, 3)} mm`;
+    const ref = d.ui.refRadius === 'measured' && d.loaded?.measuredRadiusMm
+      ? `measured cavity radius ${fmt(d.loaded.measuredRadiusMm, 3)} mm${d.loaded.measuredCenter ? ', centre of its own fit' : ', centre of the original sphere'}`
+      : `commercial radius ${fmt(d.loaded?.commercialRadiusMm, 3)} mm, centre of the original sphere`;
     const el = section(root, 'Minimum creep from the elevations (sphere → plane)',
       `In the plane r = R (${ref}) penetration appears as positive peaks and material pushed above the original surface as negative peaks. Wear cannot create elevations; creep (plastic flow) conserves volume, so the elevation volume is a <b>lower bound</b> of the creep volume still in the liner. The noise floor is the volume pure noise (σ = ${fmt(e.sigmaEffUm)} µm) would produce above the same threshold.`);
     const dyn = det.rows.find((r) => r.law === c.laws[0] && r.mode === 'dynamic' && r.temperature === 'in-vivo')!;

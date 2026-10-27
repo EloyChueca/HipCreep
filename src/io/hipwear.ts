@@ -13,13 +13,15 @@ export const FORMAT_VERSION = 1;
 export interface HipCreepInputFile {
   format: typeof FORMAT_ID;
   version: number;
-  source?: { program?: string; programVersion?: string; file?: string; exportedAt?: string; truth?: Record<string, number> };
+  source?: { program?: string; programVersion?: string; file?: string; exportedAt?: string; analysisMode?: string; truth?: Record<string, number> };
   case?: { id?: string; yearsInVivo?: number | null; daysExVivo?: number | null };
   implant?: { headDiameterMm?: number | null; material?: string | null; linerOuterDiameterMm?: number | null };
   geometry: {
     commercialRadiusMm: number;
     measuredRadiusMm?: number | null;
     measuredRadiusReliable?: boolean | null;
+    /** Centre of the free-radius sphere fitted to the unworn reference (pairs with measuredRadiusMm) */
+    measuredCenter?: number[] | null;
     originalCenter: number[];
     displacedCenter?: number[] | null;
     poleAxis: number[];
@@ -56,6 +58,8 @@ export interface LoadedHipWearCase {
   loadAngleDeg: number | null;
   measured: { penetrationUm: number; sdUm: number; detectionLimitUm: number | null; volumeMm3: number | null; volumeSdMm3: number | null } | null;
   center: Vec3;
+  /** Centre of the measured-radius sphere (null if not exported) */
+  measuredCenter: Vec3 | null;
   pole: Vec3;
   load: Vec3 | null;
   commercialRadiusMm: number;
@@ -85,6 +89,7 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
   const center = vec3(g.originalCenter, 'geometry.originalCenter');
   const pole = vec3(g.poleAxis, 'geometry.poleAxis');
   const displaced = g.displacedCenter ? vec3(g.displacedCenter, 'geometry.displacedCenter') : null;
+  const measuredCenter = g.measuredCenter ? vec3(g.measuredCenter, 'geometry.measuredCenter') : null;
   let load: Vec3 | null = displaced ? [displaced[0] - center[0], displaced[1] - center[1], displaced[2] - center[2]] : null;
   if (load && Math.hypot(...load) < 1e-9) load = null;
 
@@ -159,6 +164,7 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
     loadAngleDeg,
     measured,
     center,
+    measuredCenter,
     pole,
     load,
     commercialRadiusMm: Rc,

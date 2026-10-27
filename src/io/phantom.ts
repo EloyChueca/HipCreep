@@ -128,6 +128,7 @@ export function makePhantom(opt: Partial<PhantomOptions> = {}, meta: { yearsInVi
       commercialRadiusMm: o.headRadiusMm,
       measuredRadiusMm: R,
       measuredRadiusReliable: true,
+      measuredCenter: [0, 0, 0],
       originalCenter: [0, 0, 0],
       displacedCenter: [round(load[0] * D / 1000, 7), 0, round(load[2] * D / 1000, 7)],
       poleAxis: [0, 0, 1],
