@@ -83,7 +83,9 @@ const SECTIONS: Section[] = [
     title: 'Creep model', fields: [
       { kind: 'laws', id: 'laws', label: 'Creep laws — shown / used by the Monte Carlo (one law per sample)' },
       { kind: 'select', id: 'leeExtrapolation', label: 'Lee laws beyond 10⁴ min', options: [['log', 'Log-linear continues'], ['both', 'Both (sampled)'], ['cap', 'Saturates']] },
-      { kind: 'select', id: 'recoveryKinetics', label: 'Recovery beyond 10⁴ min', options: [['both', 'Both (sampled)'], ['plateau', 'Plateau (51 %)'], ['log', 'Log-linear continues']] },
+      { kind: 'select', id: 'recoveryScenario', label: 'Recovery scenario', options: [['both', 'Both (reported separately)'], ['lp', 'Lee & Pienkowski only'], ['long', 'Long loading only']],
+        help: 'Lee & Pienkowski 1998: ≈ 51 % recovered after 7 days of loading. Long loading (Galetz 2010, Estok 2005): the permanent part grows with the loading time, recovery 0–15 %.' },
+      { kind: 'select', id: 'recoveryKinetics', label: 'Recovery beyond 10⁴ min', options: [['both', 'Both (sampled)'], ['plateau', 'Plateau'], ['log', 'Log-linear continues']] },
       { kind: 'range', id: 'eaKcal', label: 'Activation energy Ea (TTS)', unit: 'kcal/mol', step: 0.5,
         help: '≈ 15.5 Galetz & Glatzel 2010 (deformation under sliding, 23–45 °C); 19.3 reproduces Burger 2006. Deng 1998 (53.7) overestimates the shift.' },
       { kind: 'range', id: 'E', label: 'Elastic modulus E', unit: 'MPa', step: 10 },
@@ -187,6 +189,7 @@ export function writeForm(c: CaseInput, ui: UiSettings): void {
   for (const id of LAW_IDS) { setChk('law-' + id, c.laws.includes(id)); setChk('mclaw-' + id, c.mcLaws.includes(id)); }
   setSel('leeExtrapolation', c.leeExtrapolation);
   setSel('recoveryKinetics', c.recoveryKinetics);
+  setSel('recoveryScenario', c.recoveryScenario);
   setRange('eaKcal', c.eaKcal);
   setRange('E', c.E);
   setRange('nu', c.nu);
@@ -262,6 +265,7 @@ export function readForm(base: CaseInput, uiBase: UiSettings): { c: CaseInput; u
   c.laws = laws as LawId[];
   c.leeExtrapolation = getSel('leeExtrapolation', base.leeExtrapolation) as CaseInput['leeExtrapolation'];
   c.recoveryKinetics = getSel('recoveryKinetics', base.recoveryKinetics) as CaseInput['recoveryKinetics'];
+  c.recoveryScenario = getSel('recoveryScenario', base.recoveryScenario) as CaseInput['recoveryScenario'];
   c.eaKcal = getRange('eaKcal', base.eaKcal);
   c.E = getRange('E', base.E);
   c.nu = getRange('nu', base.nu);

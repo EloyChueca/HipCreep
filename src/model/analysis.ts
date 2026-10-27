@@ -11,7 +11,7 @@ import { G, DAYS_PER_MONTH, SECONDS_PER_DAY, SECONDS_PER_YEAR } from './constant
 import { LAWS, type LawId, type Loading, type LawOptions } from './laws.ts';
 import { MATERIALS, type Range } from './materials.ts';
 import { simulate, RES_FINE, RES_MC, type Resolution, type SimResult } from './creep.ts';
-import { recoveredFraction, type RecoveryKinetics } from './recovery.ts';
+import { recoveredFraction, RECOVERY_LONG_10K, type RecoveryKinetics, type RecoveryScenario } from './recovery.ts';
 import type { CaseInput } from './case.ts';
 import { mulberry32, uniform, logUniform, normal, summarize, type Stats } from './stats.ts';
 
@@ -30,6 +30,7 @@ export interface ScenarioParams {
   leeExtrapolation: 'cap' | 'log';
   r10k: number;
   recoveryKinetics: RecoveryKinetics;
+  recoveryScenario: RecoveryScenario;
 }
 
 export function creepFactorRange(c: CaseInput): Range {
@@ -54,12 +55,13 @@ export function nominalParams(c: CaseInput): ScenarioParams {
     leeExtrapolation: c.leeExtrapolation === 'log' ? 'log' : 'cap',
     r10k: recoveryRange(c).nominal,
     recoveryKinetics: c.recoveryKinetics === 'log' ? 'log' : 'plateau',
+    recoveryScenario: 'lp',
   };
 }
 
 export function sampleParams(c: CaseInput, rng: () => number): ScenarioParams {
   const pick = <T extends string>(v: T | 'both', a: T, b: T): T => (v === 'both' ? (rng() < 0.5 ? a : b) : v);
-  return {
+  const out: ScenarioParams = {
     forceBW: uniform(rng, c.peakForceBW),
     cyclesPerYear: logUniform(rng, c.cyclesPerYear),
     dynStaticRatio: uniform(rng, c.dynStaticRatio),
@@ -72,7 +74,12 @@ export function sampleParams(c: CaseInput, rng: () => number): ScenarioParams {
     leeExtrapolation: pick(c.leeExtrapolation, 'cap', 'log'),
     r10k: uniform(rng, recoveryRange(c)),
     recoveryKinetics: pick(c.recoveryKinetics, 'plateau', 'log'),
+    recoveryScenario: 'lp',
   };
+  // drawn after the other parameters so the rest of the sample does not depend on it
+  const sc = pick(c.recoveryScenario ?? 'both', 'lp', 'long');
+  if (sc === 'long') { out.recoveryScenario = 'long'; out.r10k = uniform(rng, RECOVERY_LONG_10K); }
+  return out;
 }
 
 export function implantSeconds(c: CaseInput): number {
@@ -134,6 +141,8 @@ export interface DeterministicRow {
   tempC: number;
   creepUm: number;
   remainingUm: number;
+  /** Remaining creep in the long-loading recovery scenario */
+  remainingLongUm: number;
   peakPressureInitialMPa: number;
   peakPressureFinalMPa: number;
   contactHalfAngleDeg: number;
@@ -146,6 +155,8 @@ export interface DeterministicResult {
   recovered: number;
   /** Recovered fraction with the other kinetics scenario, for reference */
   recoveredAlt: number;
+  /** Nominal recovered fraction in the long-loading scenario */
+  recoveredLong: number;
   rows: DeterministicRow[];
 }
 
@@ -153,6 +164,7 @@ export function runDeterministic(c: CaseInput): DeterministicResult {
   const p = nominalParams(c);
   const R = recoveryFor(c, p);
   const Ralt = recoveryFor(c, { ...p, recoveryKinetics: p.recoveryKinetics === 'plateau' ? 'log' : 'plateau' });
+  const Rlong = recoveryFor(c, { ...p, recoveryScenario: 'long', r10k: RECOVERY_LONG_10K.nominal });
   const rows: DeterministicRow[] = [];
   for (const lawId of c.laws) {
     const law = LAWS[lawId];
@@ -169,6 +181,7 @@ export function runDeterministic(c: CaseInput): DeterministicResult {
           law: lawId, mode, temperature, tempC,
           creepUm: sim.maxCreepMm * 1000,
           remainingUm: sim.maxCreepMm * 1000 * (1 - R),
+          remainingLongUm: sim.maxCreepMm * 1000 * (1 - Rlong),
           peakPressureInitialMPa: sim.peakPressureInitialMPa,
           peakPressureFinalMPa: sim.peakPressureFinalMPa,
           contactHalfAngleDeg: sim.contactHalfAngleFinalDeg,
@@ -178,7 +191,7 @@ export function runDeterministic(c: CaseInput): DeterministicResult {
       }
     }
   }
-  return { params: p, recovered: R, recoveredAlt: Ralt, rows };
+  return { params: p, recovered: R, recoveredAlt: Ralt, recoveredLong: Rlong, rows };
 }
 
 // ------------------------------------------------------------
@@ -200,6 +213,8 @@ export interface McResult {
   lawIndex: Uint8Array;
   laws: LawId[];
   recoveredFraction: Float64Array;
+  /** Recovery scenario of each sample: 0 = Lee & Pienkowski, 1 = long loading */
+  scenario: Uint8Array;
   measuredUm: Float64Array | null;
   modes: Record<Loading, ModeSamples>;
   summary: Record<Loading, {
@@ -207,6 +222,8 @@ export interface McResult {
     wear: Stats | null; creepShare: Stats | null; probWearNegative: number | null;
     /** Penetration not detected: fraction of samples whose remaining creep exceeds the detection limit */
     probRemainingAboveLod: number | null;
+    /** Remaining creep and wear for each recovery scenario (null if the scenario was not sampled) */
+    byScenario: Record<RecoveryScenario, { remaining: Stats; wear: Stats | null; recovered: Stats; probWearNegative: number | null } | null>;
     byLaw: Partial<Record<LawId, Stats>>;
   }>;
   /** Pooled static + dynamic samples (envelope of both scenarios) */
@@ -225,6 +242,7 @@ export async function runMonteCarlo(
   const laws = mcSet.length ? mcSet : c.laws.length ? c.laws : (['lee2003'] as LawId[]);
   const lawIndex = new Uint8Array(n);
   const Rarr = new Float64Array(n);
+  const scen = new Uint8Array(n);
   const meas = c.measured;
   // not detected: D is only known to lie in [0, LoD] — no wear / creep split is computed
   const notDetected = !!meas?.notDetected;
@@ -247,6 +265,7 @@ export async function runMonteCarlo(
     const p = sampleParams(c, rng);
     const R = recoveryFor(c, p);
     Rarr[s] = R;
+    scen[s] = p.recoveryScenario === 'long' ? 1 : 0;
     const D = !meas ? 0 : notDetected ? uniform(rng, { nominal: lod / 2, lo: 0, hi: lod }) : normal(rng, meas.penetrationUm, meas.sdUm);
     if (Darr) Darr[s] = D;
     for (const mode of MODES) {
@@ -288,7 +307,18 @@ export async function runMonteCarlo(
       for (const v of ms.remainingUm) if (v > lod) k++;
       pAbove = k / n;
     }
+    const byScenario = {} as McResult['summary'][Loading]['byScenario'];
+    (['lp', 'long'] as const).forEach((sc, si) => {
+      const idx: number[] = [];
+      for (let i = 0; i < n; i++) if (scen[i] === si) idx.push(i);
+      if (!idx.length) { byScenario[sc] = null; return; }
+      const sub = (a: Float64Array) => Float64Array.from(idx, (i) => a[i]);
+      let pn: number | null = null;
+      if (ms.wearUm) { let k = 0; for (const i of idx) if (ms.wearUm[i] < 0) k++; pn = k / idx.length; }
+      byScenario[sc] = { remaining: summarize(sub(ms.remainingUm)), wear: ms.wearUm ? summarize(sub(ms.wearUm)) : null, recovered: summarize(sub(Rarr)), probWearNegative: pn };
+    });
     summary[mode] = {
+      byScenario,
       probRemainingAboveLod: pAbove,
       creep: summarize(ms.creepUm),
       recovered: summarize(ms.recoveredUm),
@@ -306,7 +336,7 @@ export async function runMonteCarlo(
     wear: modes.static.wearUm && modes.dynamic.wearUm ? summarize(cat(modes.static.wearUm, modes.dynamic.wearUm)) : null,
   };
   return {
-    n, lawIndex, laws, recoveredFraction: Rarr, measuredUm: Darr, modes, summary, pooled,
+    n, lawIndex, laws, recoveredFraction: Rarr, scenario: scen, measuredUm: Darr, modes, summary, pooled,
     recovery: summarize(Rarr),
     elapsedMs: performance.now() - t0,
   };

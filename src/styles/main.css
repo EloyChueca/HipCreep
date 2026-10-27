@@ -284,3 +284,7 @@ details.explain.big > summary { font-size: 15px; color: var(--text-primary); }
 /* law selection: show + Monte Carlo checkboxes */
 .law-row { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 3px 0; }
 .law-row input { margin: 0; }
+
+/* recovery scenarios inside a summary cell */
+.sc { white-space: nowrap; line-height: 1.5; }
+.sc .sc-l { display: inline-block; min-width: 72px; font-size: 11px; color: var(--text-muted); text-align: right; margin-right: 4px; }

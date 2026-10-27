@@ -130,6 +130,12 @@ h(t) = 0.73 + 0.27·log₁₀(t_min / 1000)      R(t) = R₁₀ₖ · h(t)
   (0.40 until v0.3). Cross-linked PE recovers more strain than conventional (strain-recovery tests; Takahashi et al. 2016
   report "considerable" shape recovery of vitamin-E HXLPE liners, half of it within 5 min) but no percentage is
   published: 0.60 (0.45–0.75) is an **assumption**.
+* **Recovery scenarios (v0.5).** Lee & Pienkowski loaded for 7 days; a liner is loaded for months or years. Galetz &
+  Glatzel 2010 found that the permanent strain grows strongly with the loading time, and Estok et al. 2005 measured,
+  after ≈ 23 days of cyclic loading and 48 h unloaded, the full creep. HipCreep therefore reports two scenarios:
+  *Lee & Pienkowski* (R₁₀ₖ of the grade, upper bound of recovery) and *long loading* (R₁₀ₖ ∈ [0, 0.15], all grades).
+  The Monte Carlo samples both (50/50) and reports them separately; the verdict uses their envelope. The form allows
+  one scenario only.
 * Other data: Metin & Cengil 2016 (tensile, room temperature, 1 h creep + 1 h recovery): 68–88 % of the total strain
   (elastic included) recovered at 5–13 MPa, less at higher stress. Crissman & Zapas (NIST reports 1983–84): recovery
   plateaus at a finite, non-recoverable ("plastic") strain. Zeman et al. 2018 waited 12 h after loading to measure only

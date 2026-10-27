@@ -57,6 +57,8 @@ export interface CaseInput {
   mcLaws: LawId[];
   leeExtrapolation: Either<'cap' | 'log'>;
   recoveryKinetics: Either<'plateau' | 'log'>;
+  /** Recovery scenario: Lee & Pienkowski, long loading (near zero) or both (sampled 50/50) */
+  recoveryScenario: Either<'lp' | 'long'>;
   eaKcal: Range;
   E: Range;
   nu: Range;
@@ -99,6 +101,7 @@ export function defaultCase(): CaseInput {
     // Lee & Pienkowski 1998: steady creep rate after ≈4·10³ min; Estok 2005: penetration still grows
     leeExtrapolation: 'log',
     recoveryKinetics: 'both',
+    recoveryScenario: 'both',
     // Galetz & Glatzel 2010 (≈ 15.5) – Burger 2006 (19.3), see temperature.ts
     eaKcal: { nominal: 17, lo: 15, hi: EA_BURGER_KCAL + 0.7 },
     E: { nominal: 650, lo: 500, hi: 900 },

@@ -12,7 +12,7 @@ import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();

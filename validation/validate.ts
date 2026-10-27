@@ -66,6 +66,7 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
   const nOut = det[LAW_IDS[0]].length;
   const samples: number[][] = Array.from({ length: nOut }, () => []);
   const byLaw: Record<string, number[][]> = Object.fromEntries(LAW_IDS.map((l) => [l, Array.from({ length: nOut }, () => [] as number[])]));
+  const scen: string[] = [];
   for (let i = 0; i < n; i++) {
     const law = c.mcLaws[Math.min(c.mcLaws.length - 1, Math.floor(rng() * c.mcLaws.length))];
     const p = sampleParams(c, rng);
@@ -73,8 +74,9 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
     let w = times.map((t) => at(r.history!, t));
     if (post) w = post(w, p);
     w.forEach((v, k) => { samples[k].push(v); byLaw[law][k].push(v); });
+    scen.push(p.recoveryScenario);
   }
-  return { det, mc: samples.map((a) => summarize(Float64Array.from(a))), byLaw: Object.fromEntries(LAW_IDS.map((l) => [l, byLaw[l].map((a) => summarize(Float64Array.from(a)))])), samples };
+  return { scen, det, mc: samples.map((a) => summarize(Float64Array.from(a))), byLaw: Object.fromEntries(LAW_IDS.map((l) => [l, byLaw[l].map((a) => summarize(Float64Array.from(a)))])), samples };
 }
 
 // ============================================================ V1 — Lee & Pienkowski 1998 (material, static, 36.5 °C)
@@ -151,6 +153,11 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
       const row: any = { ...cs, timeRule, det: r.det, mc: r.mc };
       out.estok.push(row);
       const D = (l: LawId) => Ns.map((_, k) => `${f(r.det[l][k + 3])}`).join('/');
+      const last = r.samples.length - 1, meas4 = (cs.meas as any)[4e6];
+      const scSt = (k: string) => summarize(Float64Array.from(r.samples[last].filter((_, i) => r.scen[i] === k)));
+      const lp = scSt('lp'), lg = scSt('long'), env = r.mc[last];
+      row.scenarios = { lp, long: lg, envelope: env, inside: meas4 >= env.p5 && meas4 <= env.p95 };
+      console.log(`   4 M remaining by recovery scenario: L&P ${f(lp.p50)} (${f(lp.p5)}–${f(lg.p95 > 0 ? lp.p95 : 0)})  long ${f(lg.p50)} (${f(lg.p5)}–${f(lg.p95)})  envelope ${f(env.p5)}–${f(env.p95)} → measured ${meas4} ${row.scenarios.inside ? 'INSIDE' : 'outside'}`);
       console.log(`${cs.mat.padEnd(12)} Ø${cs.d} [${timeRule}] measured ${Ns.map((N) => (cs.meas as any)[N]).join('/')} | rem. after 48 h: ${LAW_IDS.map((l) => `${SHORT[l]} ${D(l)}`).join('  ')} | MC rem ${Ns.map((_, k) => `${f(r.mc[k + 3].p50)} (${f(r.mc[k + 3].p5)}–${f(r.mc[k + 3].p95)})`).join(' / ')} | MC Cmax@4M ${f(r.mc[2].p50)}`);
     }
   }

@@ -158,3 +158,42 @@ Changes (all from the papers above):
    run-in wear are outside the model.
 3. Bevill's magnitudes (10–75 µm) are below the model (50–110 µm) because their gait loading over 2000 min cannot be
    reproduced exactly; only the trends are compared.
+
+## v0.5.0 — recovery scenarios
+
+Change: the recovery is reported in two scenarios instead of one (the Monte Carlo samples both, 50/50, and keeps
+them apart):
+
+* **Lee & Pienkowski** — R₁₀ₖ of the material preset (conventional 0.51, 0.30–0.60): recovery after 7 days of loading,
+  the upper bound.
+* **Long loading** — R₁₀ₖ ∈ [0, 0.15] for every grade: Galetz 2010 (the permanent strain grows strongly with the loading
+  time) and the absence of recovery after 48 h in Estok 2005 after ≈ 23 days of loading. Not fitted: the range only
+  states that the recovery of a liner loaded for months or years may be close to zero.
+
+The report shows both scenarios in the summary table, the decomposition table and the deterministic table, and the
+verdict uses their envelope. Estok is used as a consistency check (it must fall inside the envelope).
+
+### Estok 2005 (v0.5.0, remaining after 48 h at 4 M cycles, µm, loading time = cycles / 2 Hz)
+
+| Liner | Measured | L&P scenario | Long-loading scenario | Envelope P5–P95 | Inside |
+|---|---|---|---|---|---|
+| Conventional Ø32 | 97 | 68 (48–92) | 107 (82–131) | 51–128 | ✔ |
+| Remelted HXLPE Ø32 | 107 | 64 (42–94) | 119 (91–150) | 46–143 | ✔ |
+| Conventional Ø28 | 132 | 86 (63–116) | 135 (106–169) | 66–160 | ✔ |
+| Remelted HXLPE Ø28 | 155 | 80 (54–120) | 151 (118–188) | 58–178 | ✔ |
+
+Long-loading scenario vs measured: +10 %, +11 %, +2 %, −3 %. Same result with loading time = cycles (8 / 8 inside).
+
+### Before / after (all versions)
+
+| Check | Metric | v0.3.0 | v0.4.0 | v0.5.0 |
+|---|---|---|---|---|
+| V2 Takahashi (calibration) | MC median error ArCom / E1 | −24…−27 % / −8…−17 % | −7…−11 % / −3…−14 % | −10…−13 % / −5…−17 % |
+| V3 Estok (independent) | remaining, median error | −49…−66 % | −30…−46 % | L&P −30…−48 %; long loading −3…+11 % |
+| | measured inside the 90 % interval | 4 / 4 (very wide) | 0 / 4 | 4 / 4 (envelope 46–188 µm) |
+| | creep before recovery | −9…−31 % | +3…+17 % | +2…+16 % |
+| V4 Bevill (independent) | trends | ✔ | ✔ | ✔ |
+| V5 Rochcongar (independent) | creep day 7 → year 1 (≈ 140 µm clinical) | 17 µm | 22–25 µm | 21–24 µm |
+| V6 Galetz (independent) | a_T 23 → 37 °C (≈ 3.3) | 61.5 | 2.8–4.4 | 2.8–4.4 |
+
+Still open: in vivo bedding-in (V5) is outside the model (sliding-assisted plastic flow, seating, run-in wear).

@@ -189,3 +189,16 @@ test('elevation analysis: no elevation → net volume ≈ 0; with elevation → 
   assert.ok(ee.netRangeMm3[1] < ph.source!.truth!.elevationVolumeMm3);
   near(ee.elevationPsiDeg, 70, 0.05);
 });
+
+test('recovery scenarios: long loading recovers less and both are reported', async () => {
+  const c = defaultCase();
+  c.samples = 60; c.laws = ['lee2003']; c.mcLaws = ['lee2003'];
+  const mc = await runMonteCarlo(c);
+  const lp = mc.summary.dynamic.byScenario.lp!, lg = mc.summary.dynamic.byScenario.long!;
+  assert.ok(lp && lg);
+  assert.ok(lg.recovered.p50 < 0.2 && lp.recovered.p50 > 0.3);
+  assert.ok(lg.remaining.p50 > lp.remaining.p50);
+  c.recoveryScenario = 'lp';
+  const only = await runMonteCarlo(c);
+  assert.equal(only.summary.dynamic.byScenario.long, null);
+});

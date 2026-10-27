@@ -49,6 +49,20 @@ function noticeHtml(title: string, detail: string): string {
   return `<div class="verdict small-signal"><div class="t"><span class="badge small-signal" aria-hidden="true">i</span>${escapeHtml(title)}</div><div>${detail}</div></div>`;
 }
 
+const SC_SHORT = { lp: 'L&amp;P', long: 'Long load.' } as const;
+
+/** One line per recovery scenario (+ envelope); falls back to a single cell with one scenario */
+function scCell(mc: McResult, mode: Loading, key: 'remaining' | 'wear', all: Stats | null): string {
+  const bs = mc.summary[mode].byScenario;
+  const present = (['lp', 'long'] as const).filter((k) => bs[k]);
+  if (present.length < 2) return mcCell(all);
+  const lines = present.map((k) => {
+    const st = bs[k]![key];
+    return st ? `<div class="sc"><span class="sc-l">${SC_SHORT[k]}</span> <b>${fmt(st.p50)}</b> <span class="range-i">${fmt(st.p5)} – ${fmt(st.p95)}</span></div>` : '';
+  }).join('');
+  return `${lines}<div class="range">both: ${all ? `${fmt(all.p5)} – ${fmt(all.p95)}` : '—'} µm</div>`;
+}
+
 /** "median [P5 – P95]" cell */
 const mcCell = (s: Stats | null, unit = 'µm') => s
   ? `<b>${fmt(s.p50)}</b> <span class="unit-s">${unit}</span><div class="range">${fmt(s.p5)} – ${fmt(s.p95)}</div>`
@@ -83,12 +97,18 @@ export function renderReport(root: HTMLElement, d: ReportData): void {
   const m = c.measured;
   const recRow = (mode: Loading) => {
     const s = S[mode];
+    const bs = s.byScenario;
+    const present = (['lp', 'long'] as const).filter((k) => bs[k]);
+    if (present.length === 2) {
+      return present.map((k) => `<div class="sc"><span class="sc-l">${SC_SHORT[k]}</span> <b>${pct(bs[k]!.recovered.p50)}</b> <span class="range-i">${pct(bs[k]!.recovered.p5)} – ${pct(bs[k]!.recovered.p95)}</span></div>`).join('')
+        + `<div class="range">of C<sub>max</sub></div>`;
+    }
     return `<b>${pct(mc.recovery.p50)}</b> <span class="unit-s">of C<sub>max</sub></span><div class="range">${pct(mc.recovery.p5)} – ${pct(mc.recovery.p95)} · ${fmt(s.recovered.p50)} µm</div>`;
   };
   const rows: string[] = [
     `<tr><th scope="row">Creep at explantation <span class="sym">C<sub>max</sub></span></th><td>${mcCell(S.dynamic.creep)}</td><td>${mcCell(S.static.creep)}</td></tr>`,
     `<tr><th scope="row">Recovered before scanning <span class="sym">R</span></th><td>${recRow('dynamic')}</td><td>${recRow('static')}</td></tr>`,
-    `<tr><th scope="row">Remaining creep <span class="sym">C<sub>rem</sub> = C<sub>max</sub>(1 − R)</span></th><td>${mcCell(S.dynamic.remaining)}</td><td>${mcCell(S.static.remaining)}</td></tr>`,
+    `<tr><th scope="row">Remaining creep <span class="sym">C<sub>rem</sub> = C<sub>max</sub>(1 − R)</span></th><td>${scCell(mc, 'dynamic', 'remaining', S.dynamic.remaining)}</td><td>${scCell(mc, 'static', 'remaining', S.static.remaining)}</td></tr>`,
   ];
   if (m?.notDetected) {
     const lod = m.detectionLimitUm ?? 0;
@@ -98,7 +118,7 @@ export function renderReport(root: HTMLElement, d: ReportData): void {
     rows.push(`<tr><th scope="row">Samples with C<sub>rem</sub> above the detection limit</th><td><b>${pct(S.dynamic.probRemainingAboveLod)}</b></td><td><b>${pct(S.static.probRemainingAboveLod)}</b></td></tr>`);
   } else if (m) {
     rows.push(`<tr class="sep"><th scope="row">Measured penetration (HipWear) <span class="sym">D</span></th><td colspan="2" class="center"><b>${fmt(m.penetrationUm)}</b> <span class="unit-s">µm</span> ± ${fmt(m.sdUm)} µm (SD)${m.detectionLimitUm ? ` · detection limit ${fmt(m.detectionLimitUm)} µm` : ''}</td></tr>`);
-    rows.push(`<tr class="hl"><th scope="row">Estimated wear <span class="sym">W = D − C<sub>rem</sub></span></th><td>${mcCell(S.dynamic.wear)}</td><td>${mcCell(S.static.wear)}</td></tr>`);
+    rows.push(`<tr class="hl"><th scope="row">Estimated wear <span class="sym">W = D − C<sub>rem</sub></span></th><td>${scCell(mc, 'dynamic', 'wear', S.dynamic.wear)}</td><td>${scCell(mc, 'static', 'wear', S.static.wear)}</td></tr>`);
     rows.push(`<tr><th scope="row">Share of D that is remaining creep</th><td><b>${pct(S.dynamic.creepShare?.p50)}</b></td><td><b>${pct(S.static.creepShare?.p50)}</b></td></tr>`);
   } else {
     rows.push(`<tr class="sep"><th scope="row">Measured penetration (HipWear) <span class="sym">D</span></th><td colspan="2" class="center muted">not available — only the creep prediction</td></tr>`);
@@ -106,7 +126,8 @@ export function renderReport(root: HTMLElement, d: ReportData): void {
   head.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data summary">
     <thead><tr><th></th><th>Dynamic <span class="muted">(gait cycles)</span></th><th>Static <span class="muted">(load held, upper bound)</span></th></tr></thead>
     <tbody>${rows.join('')}</tbody></table></div>
-    <p class="muted" style="margin-top:6px;font-size:12px">Monte Carlo median in bold, 90 % interval (P5 – P95) below, in µm. All quantities are penetrations into the liner wall (positive = surface moved away from the head centre).</p>`);
+    <p class="muted" style="margin-top:6px;font-size:12px">Monte Carlo median in bold, 90 % interval (P5 – P95) beside or below, in µm. All quantities are penetrations into the liner wall (positive = surface moved away from the head centre).
+    ${mc.summary.dynamic.byScenario.lp && mc.summary.dynamic.byScenario.long ? `<b>Recovery scenarios</b>: <b>L&amp;P</b> = Lee &amp; Pienkowski 1998 (≈ 51 % recovered after 7 days of loading, upper bound); <b>Long load.</b> = long loading (Galetz 2010, Estok 2005: the permanent part grows with the loading time, 0–15 % recovered). A liner loaded for years is expected between both; "both" is the envelope used for the verdict.` : ''}</p>`);
   if (m) {
     for (const mode of MODES) head.insertAdjacentHTML('beforeend', verdictHtml(verdict(m, S[mode].remaining, S[mode].wear, S[mode].probWearNegative), `${MODE_LABEL[mode]} mode`));
   } else {
@@ -129,7 +150,7 @@ function renderLawsSection(root: HTMLElement, d: ReportData): void {
   const { c, det } = d;
   const gaitS = gaitSeconds(c, c.cyclesPerYear.nominal);
   const sec = section(root, 'Creep at explantation — laws, loading modes and build-up',
-    `Nominal parameters. <b>Static</b>: the peak walking force (${num(c.peakForceBW.nominal)} × BW) held during the whole implantation time (${fmtTime(implantSeconds(c))}) — an upper bound. <b>Dynamic</b>: 1 Hz gait cycles with that peak during the cumulative walking time (${num(c.cyclesPerYear.nominal / 1e6)} M cycles/year → ${fmtTime(gaitS)} of loading). Each law is shown at the temperature of its own tests and at ${num(c.inVivoTempC)} °C (time–temperature superposition, Ea = ${num(c.eaKcal.nominal)} kcal/mol). Remaining = after ${pct(det.recovered)} recovery (${pct(det.recoveredAlt)} if recovery keeps growing log-linearly).`);
+    `Nominal parameters. <b>Static</b>: the peak walking force (${num(c.peakForceBW.nominal)} × BW) held during the whole implantation time (${fmtTime(implantSeconds(c))}) — an upper bound. <b>Dynamic</b>: 1 Hz gait cycles with that peak during the cumulative walking time (${num(c.cyclesPerYear.nominal / 1e6)} M cycles/year → ${fmtTime(gaitS)} of loading). Each law is shown at the temperature of its own tests and at ${num(c.inVivoTempC)} °C (time–temperature superposition, Ea = ${num(c.eaKcal.nominal)} kcal/mol). Remaining ("rem.") = after ${pct(det.recovered)} recovery (Lee &amp; Pienkowski; ${pct(det.recoveredAlt)} if it keeps growing log-linearly) / after ${pct(det.recoveredLong)} (long loading).`);
   const split = document.createElement('div');
   split.className = 'split';
   sec.appendChild(split);
@@ -171,7 +192,7 @@ function renderLawsSection(root: HTMLElement, d: ReportData): void {
   tbl.className = 'chart-card';
   const cell = (id: LawId, mode: Loading, t: 'native' | 'in-vivo') => {
     const r = det.rows.find((x) => x.law === id && x.mode === mode && x.temperature === t)!;
-    return `<td><b>${fmt(r.creepUm)}</b><div class="range">rem. ${fmt(r.remainingUm)}</div></td>`;
+    return `<td><b>${fmt(r.creepUm)}</b><div class="range">rem. ${fmt(r.remainingUm)} / ${fmt(r.remainingLongUm)}</div></td>`;
   };
   const body = c.laws.map((id) => {
     const law = LAWS[id];
@@ -181,7 +202,7 @@ function renderLawsSection(root: HTMLElement, d: ReportData): void {
       ${cell(id, 'dynamic', 'native')}${cell(id, 'dynamic', 'in-vivo')}${cell(id, 'static', 'native')}${cell(id, 'static', 'in-vivo')}</tr>`;
   }).join('');
   tbl.innerHTML = `<div class="chart-title">Maximum creep penetration at explantation (µm)</div>
-    <div class="chart-sub">"rem." = remaining after recovery. Own T = temperature of the law's tests.</div>
+    <div class="chart-sub">"rem." = remaining after recovery: Lee &amp; Pienkowski / long loading. Own T = temperature of the law's tests.</div>
     <div class="table-wrap"><table class="data compact">
       <thead><tr><th rowspan="2">Law</th><th colspan="2">Dynamic</th><th colspan="2">Static</th></tr>
       <tr><th>own T</th><th>${num(c.inVivoTempC)} °C</th><th>own T</th><th>${num(c.inVivoTempC)} °C</th></tr></thead>
@@ -252,7 +273,14 @@ function renderDecomposition(root: HTMLElement, d: ReportData): void {
   sec.insertAdjacentHTML('beforeend', `<div class="table-wrap" style="margin-top:10px"><table class="data">
     <thead><tr><th>Mode</th><th>C<sub>max</sub></th><th>Recovered</th><th>C<sub>rem</sub></th><th>Wear W</th><th>W, 90 %</th><th>C<sub>rem</sub> / D</th><th>P(W &lt; 0)</th></tr></thead>
     <tbody>${shareRow('dynamic')}${shareRow('static')}</tbody></table></div>
-    <p class="muted" style="margin-top:6px;font-size:12px">Medians in µm. Without any recovery model the bounds would only be: wear between ${fmt(Math.max(0, m.penetrationUm - cmax))} and ${fmt(m.penetrationUm)} µm, remaining creep between 0 and ${fmt(Math.min(m.penetrationUm, cmax))} µm (pooled median C<sub>max</sub> = ${fmt(cmax)} µm).</p>`);
+    ${(() => {
+      const rows = MODES.flatMap((mode) => (['lp', 'long'] as const).map((k) => {
+        const b = S[mode].byScenario[k];
+        return b && b.wear ? `<tr><td>${MODE_LABEL[mode]}</td><td>${k === 'lp' ? 'Lee &amp; Pienkowski' : 'Long loading'}</td><td>${pct(b.recovered.p50)}</td><td>${fmt(b.remaining.p50)}</td><td><b>${fmt(b.wear.p50)}</b></td><td>${fmt(b.wear.p5)} to ${fmt(b.wear.p95)}</td><td>${pct(b.probWearNegative)}</td></tr>` : '';
+      })).join('');
+      return rows ? `<div class="table-wrap" style="margin-top:10px"><table class="data"><thead><tr><th>Mode</th><th>Recovery scenario</th><th>R</th><th>C<sub>rem</sub></th><th>Wear W</th><th>W, 90 %</th><th>P(W &lt; 0)</th></tr></thead><tbody>${rows}</tbody></table></div>` : '';
+    })()}
+    <p class="muted" style="margin-top:6px;font-size:12px">Medians in µm; the first table pools both recovery scenarios. Without any recovery model the bounds would only be: wear between ${fmt(Math.max(0, m.penetrationUm - cmax))} and ${fmt(m.penetrationUm)} µm, remaining creep between 0 and ${fmt(Math.min(m.penetrationUm, cmax))} µm (pooled median C<sub>max</sub> = ${fmt(cmax)} µm).</p>`);
   const grid = document.createElement('div');
   grid.className = 'grid2';
   grid.style.marginTop = '12px';
@@ -271,6 +299,7 @@ function renderDecomposition(root: HTMLElement, d: ReportData): void {
       <li>Each bar counts the Monte Carlo samples whose estimated wear falls in that interval (hover a bar for the count). In every sample the creep model, the recovery and the measured D are drawn from their uncertainty ranges, so the width of the histogram is the uncertainty of the wear estimate.</li>
       <li><b>Dashed line W = 0</b>: the whole measured penetration would be remaining creep. Samples to its <b>left</b> (W &lt; 0) predict more remaining creep than was measured — impossible, so a large fraction there means the creep model over-predicts for this liner.</li>
       <li><b>Dashed line W = D</b>: no creep left at all — the whole penetration is wear. The distance between this line and the bulk of the histogram is the remaining creep.</li>
+      <li>With both recovery scenarios the histogram pools them and may show two humps: the left one is long loading (little recovery → more creep left → less wear), the right one Lee &amp; Pienkowski. The table above gives each scenario separately.</li>
       <li>The <b>dynamic</b> histogram (gait loading) is the realistic scenario; the <b>static</b> one (load held 24 h a day) gives the most creep and therefore the lowest wear estimate.</li>
       <li>If D is not clearly larger than its uncertainty, the histogram is dominated by the measurement noise and the verdict above reports a small signal.</li>
     </ul></details>`);
@@ -438,7 +467,7 @@ function renderMethods(root: HTMLElement, d: ReportData): void {
       <li><b>Static ↔ dynamic</b>: Lee 2003 — a 1 Hz cycle with peak p creeps like a static load k·p (k = 0.61–0.70); Lee 1998 (static) and Lee 2003 (dynamic) agree through k ≈ 0.6.</li>
       <li><b>Beyond 10⁴ min</b> the Lee laws continue log-linearly (steady creep rate, Lee &amp; Pienkowski 1998; growth between 2 and 4 M cycles, Estok 2005).</li>
       <li><b>Temperature</b>: time–temperature superposition with an Arrhenius shift, Ea = ${num(c.eaKcal.lo)}–${num(c.eaKcal.hi)} kcal/mol (Galetz &amp; Glatzel 2010: ≈ 15.5 from the deformation under sliding at 23–45 °C; Burger 2006: 19.3). Deng's 53.7 kcal/mol overestimates the shift ×20.</li>
-      <li><b>Recovery</b>: Lee &amp; Pienkowski 1998 — recovered strain linear in log(time), 73 % of it in the first 1000 min, ≈ 51 % of the creep recovered after 10⁴ min at room temperature, independent of load. Galetz 2010: the permanent part grows with the loading time, so the lower bound is 30 %. Cross-linked PE recovers more (no published percentage; assumed ${pct(MATERIALS.hxlpe.recovery10k.lo)}–${pct(MATERIALS.hxlpe.recovery10k.hi)}).</li>
+      <li><b>Recovery</b>: Lee &amp; Pienkowski 1998 — recovered strain linear in log(time), 73 % of it in the first 1000 min, ≈ 51 % of the creep recovered after 10⁴ min at room temperature, independent of load. Galetz 2010: the permanent part grows with the loading time; Estok 2005 measured, after ≈ 23 days of cyclic loading and 48 h unloaded, the full creep. Two scenarios are therefore reported: <b>Lee &amp; Pienkowski</b> (upper bound of recovery) and <b>long loading</b> (0–15 % recovered); a liner loaded for years is expected between both. Cross-linked PE recovers more (no published percentage; assumed ${pct(MATERIALS.hxlpe.recovery10k.lo)}–${pct(MATERIALS.hxlpe.recovery10k.hi)}).</li>
       <li><b>Material</b>: ${escapeHtml(mat.label)} — ${escapeHtml(mat.note)}</li>
       <li><b>Not modelled</b>: backside deformation and liner seating in the shell, frictional heating, oxidation, edge loading by impingement, wear–creep interaction during the run-in.</li>
     </ul>

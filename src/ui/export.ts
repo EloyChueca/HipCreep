@@ -53,6 +53,10 @@ export function resultsJson(d: ReportData, version: string): string {
         creepShareOfPenetration: statObj(mc.summary[m].creepShare),
         probWearNegative: mc.summary[m].probWearNegative,
         probRemainingAboveDetectionLimit: mc.summary[m].probRemainingAboveLod,
+        byRecoveryScenario: Object.fromEntries((['lp', 'long'] as const).map((k) => {
+          const b = mc.summary[m].byScenario[k];
+          return [k, b ? { recoveredFraction: statObj(b.recovered), remainingUm: statObj(b.remaining), wearUm: statObj(b.wear), probWearNegative: b.probWearNegative } : null];
+        })),
         creepByLawUm: Object.fromEntries(Object.entries(mc.summary[m].byLaw).map(([k, s]) => [k, statObj(s!)])),
       }])),
       pooled: { creepUm: statObj(mc.pooled.creep), remainingUm: statObj(mc.pooled.remaining), wearUm: statObj(mc.pooled.wear) },
@@ -85,6 +89,10 @@ export function resultsCsv(d: ReportData): string {
     row('Creep at explantation (um)', m, mc.summary[m].creep);
     row('Recovered (um)', m, mc.summary[m].recovered);
     row('Remaining creep (um)', m, mc.summary[m].remaining);
+    for (const k of ['lp', 'long'] as const) {
+      const b = mc.summary[m].byScenario[k];
+      if (b) { row(`Remaining creep, recovery ${k} (um)`, m, b.remaining); row(`Wear, recovery ${k} (um)`, m, b.wear); }
+    }
     row('Wear (um)', m, mc.summary[m].wear);
     row('Creep share of penetration', m, mc.summary[m].creepShare);
   }

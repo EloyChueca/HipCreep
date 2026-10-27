@@ -18,12 +18,29 @@
 // temperature (22 °C), the same condition as Lee & Pienkowski. If the recovery
 // temperature differs, the recovery time is shifted with the Arrhenius factor.
 // The ultimate fraction that can be recovered is not shifted.
+//
+// Two RECOVERY SCENARIOS (v0.5), because the literature disagrees for long loading:
+//  • 'lp'   — Lee & Pienkowski 1998: R₁₀ₖ ≈ 0.51 after 10⁴ min (7 days) of loading (upper bound).
+//  • 'long' — long loading: Galetz & Glatzel 2010 found the permanent strain grows strongly
+//             with the loading time (500 s vs 3.5 days), and Estok et al. 2005 measured, after
+//             ≈ 23 days of cyclic loading and 48 h unloaded, a penetration equal to the creep
+//             expected without recovery. A liner loaded for months or years may therefore
+//             recover almost nothing: R₁₀ₖ ∈ [0, 0.15] (lower bound of the recovery).
+// The truth for a retrieved liner lies between both; HipCreep reports both and their envelope.
 // ============================================================
 
 import { SECONDS_PER_MINUTE, clamp } from './constants.ts';
 import { shiftFactor } from './temperature.ts';
 
 export type RecoveryKinetics = 'plateau' | 'log';
+export type RecoveryScenario = 'lp' | 'long';
+
+/** Recovered fraction after 10⁴ min for the long-loading scenario (all grades) */
+export const RECOVERY_LONG_10K = { nominal: 0.05, lo: 0, hi: 0.15 };
+export const RECOVERY_SCENARIO_LABEL: Record<RecoveryScenario, string> = {
+  lp: 'Lee & Pienkowski (7-day loading)',
+  long: 'Long loading (near-zero recovery)',
+};
 
 export interface RecoveryInput {
   /** Fraction of the creep recovered after 10⁴ min at 22 °C */
