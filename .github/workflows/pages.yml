@@ -5,6 +5,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # Safety net: if Settings → Pages is still on "Deploy from a branch", GitHub also publishes the raw
+  # sources with Jekyll after every push; this re-deploys the built app once that build has finished.
+  page_build:
   workflow_dispatch:
 
 permissions:
