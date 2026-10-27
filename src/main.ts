@@ -12,7 +12,7 @@ import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -61,7 +61,7 @@ function setFileInfo(): void {
   $('file-info').textContent = `${L.name} — case ${L.caseId}`;
   box.innerHTML = `<b>${escapeHtml(L.name)}</b><br/>
     Head Ø ${fmt(L.headDiameterMm)} mm · commercial R ${fmt(L.commercialRadiusMm, 3)} mm${L.measuredRadiusMm ? ` · measured R ${fmt(L.measuredRadiusMm, 3)} mm${L.measuredRadiusReliable ? '' : ' (unreliable)'}` : ''}<br/>
-    ${L.measured ? `Penetration ${fmt(L.measured.penetrationUm)} ± ${fmt(L.measured.sdUm)} µm` : 'No penetration value'} ·
+    ${L.measured ? (L.measured.notDetected ? `Penetration not detected (< ${fmt(L.measured.detectionLimitUm)} µm)` : `Penetration ${fmt(L.measured.penetrationUm)} ± ${fmt(L.measured.sdUm)} µm`) : 'No penetration value'} ·
     ${L.mesh ? `${(L.mesh.vertices.length / 3).toLocaleString('en-US')} vertices` : 'no mesh'} · noise σ ${fmt(L.noiseSigmaUm)} µm
     ${L.warnings.length ? `<ul class="warn-list">${L.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul>` : ''}`;
 }

@@ -18,6 +18,8 @@ export interface MeasuredPenetration {
   /** Penetration (wear) volume (mm³) and its SD, if available */
   volumeMm3?: number | null;
   volumeSdMm3?: number | null;
+  /** HipWear found no directional penetration: D is only known to be below the detection limit */
+  notDetected?: boolean;
 }
 
 export interface CaseInput {
@@ -99,7 +101,7 @@ export function defaultCase(): CaseInput {
     creepFactorOverride: null,
     recoveryOverride: null,
     measured: null,
-    samples: 400,
+    samples: 1000,
     seed: 12345,
   };
 }

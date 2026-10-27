@@ -13,7 +13,8 @@ liners, using the results of [HipWear](https://github.com/jpoves-a11y/GeoWear).
   shift, polyethylene grade and recovery.
 * With a HipWear file: split of the measured penetration `D = wear + remaining creep`, verdict when the creep is of
   the order of the measurement uncertainty, **sphere → plane** maps and a lower bound of the creep from the volume of
-  the elevations (material pushed above the original surface).
+  the elevations (material pushed above the original surface), with an interactive **3D view** of the unrolled
+  surface. When HipWear detects no penetration, the remaining creep is compared with the detection limit instead.
 
 The method, equations, parameter ranges and references are in [docs/MODEL.md](docs/MODEL.md); the input file
 exported by HipWear is specified in [docs/HIPWEAR_EXPORT.md](docs/HIPWEAR_EXPORT.md).
@@ -41,7 +42,7 @@ Requires Node ≥ 22.18. The model (`src/model/`) has no dependencies and runs b
 src/model/   laws.ts (creep laws) · creep.ts (contact + creep integration) · temperature.ts · recovery.ts
              materials.ts · analysis.ts (tables, Monte Carlo, verdict) · surface.ts (sphere → plane, elevations)
 src/io/      hipwear.ts (input format) · phantom.ts (synthetic liner)
-src/ui/      form, report, charts, polar maps, export
+src/ui/      form, report, charts, polar maps, 3D surface view (surface3d.ts), export
 tests/       model.test.ts
 ```
 

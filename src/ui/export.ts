@@ -52,6 +52,7 @@ export function resultsJson(d: ReportData, version: string): string {
         wearUm: statObj(mc.summary[m].wear),
         creepShareOfPenetration: statObj(mc.summary[m].creepShare),
         probWearNegative: mc.summary[m].probWearNegative,
+        probRemainingAboveDetectionLimit: mc.summary[m].probRemainingAboveLod,
         creepByLawUm: Object.fromEntries(Object.entries(mc.summary[m].byLaw).map(([k, s]) => [k, statObj(s!)])),
       }])),
       pooled: { creepUm: statObj(mc.pooled.creep), remainingUm: statObj(mc.pooled.remaining), wearUm: statObj(mc.pooled.wear) },
@@ -69,7 +70,9 @@ export function resultsCsv(d: ReportData): string {
   L.push(`Body mass (kg),${c.bodyMassKg}`, `Implantation (months),${c.implantMonths}`, `Head diameter (mm),${c.headDiameterMm}`,
     `Wall thickness (mm),${c.thicknessMm}`, `Radial clearance (mm),${c.clearance.nominal}`, `Load angle (deg),${c.loadAngleDeg}`,
     `Material,${q(c.material)}`, `Days ex vivo,${c.exVivoDays}`, `Storage temperature (C),${c.recoveryTempC}`, `In vivo temperature (C),${c.inVivoTempC}`);
-  if (c.measured) L.push(`Measured penetration (um),${c.measured.penetrationUm}`, `Measured penetration SD (um),${c.measured.sdUm}`);
+  if (c.measured?.notDetected) L.push(`Measured penetration (um),not detected`, `Detection limit (um),${c.measured.detectionLimitUm}`);
+  else if (c.measured) L.push(`Measured penetration (um),${c.measured.penetrationUm}`, `Measured penetration SD (um),${c.measured.sdUm}`);
+  for (const m of MODES) if (mc.summary[m].probRemainingAboveLod != null) L.push(`P(remaining creep > detection limit) ${m},${mc.summary[m].probRemainingAboveLod!.toFixed(4)}`);
   L.push('');
   L.push('# Deterministic (nominal parameters)');
   L.push('Law,Mode,Temperature,T (C),Creep (um),Remaining (um),p0 initial (MPa),p0 final (MPa),Notes');

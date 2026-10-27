@@ -26,7 +26,7 @@ export interface HipCreepInputFile {
     displacedCenter?: number[] | null;
     poleAxis: number[];
     rimPlane?: { point: number[]; normal: number[] } | null;
-    wallThicknessMm?: { mean?: number | null; sd?: number | null; atPenetration?: number | null } | null;
+    wallThicknessMm?: { mean?: number | null; sd?: number | null; atPenetration?: number | null; sdAtPenetration?: number | null } | null;
     outerShellRadiusMm?: number | null;
   };
   wear?: {
@@ -56,7 +56,7 @@ export interface LoadedHipWearCase {
   thicknessSdMm: number | null;
   clearanceMm: number | null;
   loadAngleDeg: number | null;
-  measured: { penetrationUm: number; sdUm: number; detectionLimitUm: number | null; volumeMm3: number | null; volumeSdMm3: number | null } | null;
+  measured: { penetrationUm: number; sdUm: number; detectionLimitUm: number | null; volumeMm3: number | null; volumeSdMm3: number | null; notDetected: boolean } | null;
   center: Vec3;
   /** Centre of the measured-radius sphere (null if not exported) */
   measuredCenter: Vec3 | null;
@@ -99,7 +99,7 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
     const pl = Math.hypot(...pole), ll = Math.hypot(...load);
     loadAngleDeg = Math.acos(Math.max(-1, Math.min(1, (pole[0] * load[0] + pole[1] * load[1] + pole[2] * load[2]) / (pl * ll)))) * 180 / Math.PI;
   }
-  if (loadAngleDeg == null) warnings.push('No penetration direction: the load angle must be entered manually.');
+  if (loadAngleDeg == null) warnings.push('No penetration direction: the load angle from the cup axis must be entered manually (default 20°).');
 
   const Rc = g.commercialRadiusMm;
   const headDiameterMm = isNum(j.implant?.headDiameterMm) ? j.implant!.headDiameterMm! : 2 * Rc;
@@ -114,20 +114,33 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
   if (wt && isNum(wt.atPenetration)) thicknessMm = wt.atPenetration;
   else if (wt && isNum(wt.mean)) thicknessMm = wt.mean;
   else if (isNum(g.outerShellRadiusMm)) thicknessMm = g.outerShellRadiusMm - (Rm ?? Rc);
-  if (wt && isNum(wt.sd)) thicknessSdMm = wt.sd;
+  // Uncertainty of the wall under the load: the local dispersion (HipWear ≥ 1.1). Older exports only
+  // carry the SD over the whole back surface, which mixes in the shape of the back: cap it.
+  if (wt && isNum(wt.sdAtPenetration)) thicknessSdMm = wt.sdAtPenetration;
+  else if (wt && isNum(wt.sd) && thicknessMm != null) {
+    const cap = 0.05 * thicknessMm;
+    thicknessSdMm = Math.min(wt.sd, cap);
+    if (wt.sd > cap) warnings.push(`Wall-thickness SD of the whole back surface (${wt.sd.toFixed(2)} mm) capped at ${cap.toFixed(2)} mm for the Monte Carlo (re-export from the latest HipWear for the local value).`);
+  }
   if (thicknessMm == null) warnings.push('No wall thickness in the file: enter it manually.');
 
   let measured: LoadedHipWearCase['measured'] = null;
   const useCorr = isNum(w.linearWearCorrectedUm);
   const D = useCorr ? w.linearWearCorrectedUm! : w.linearWearUm;
   const Dsd = useCorr ? w.linearWearCorrectedSdUm : w.linearWearSdUm;
-  if (isNum(D)) {
+  const lod = isNum(w.detectionLimitUm) ? w.detectionLimitUm : null;
+  if (isNum(D) && D <= 0 && lod != null) {
+    // Two-Sphere Auto found no directional penetration: D is only known to be below the detection limit
+    measured = { penetrationUm: 0, sdUm: lod / 2, detectionLimitUm: lod, volumeMm3: null, volumeSdMm3: null, notDetected: true };
+    warnings.push(`HipWear did not detect a directional penetration (below the detection limit of ${lod.toFixed(0)} µm).`);
+  } else if (isNum(D)) {
     measured = {
       penetrationUm: D,
       sdUm: isNum(Dsd) ? Dsd : 0,
-      detectionLimitUm: isNum(w.detectionLimitUm) ? w.detectionLimitUm : null,
+      detectionLimitUm: lod,
       volumeMm3: isNum(w.volumeMm3) ? w.volumeMm3 : null,
       volumeSdMm3: isNum(w.volumeSdMm3) ? w.volumeSdMm3 : null,
+      notDetected: false,
     };
     if (!isNum(Dsd)) warnings.push('No uncertainty for the linear penetration: set it manually.');
     if (useCorr) warnings.push('Using the linear penetration corrected for the cavity-radius excess.');

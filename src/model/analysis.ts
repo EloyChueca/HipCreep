@@ -205,6 +205,8 @@ export interface McResult {
   summary: Record<Loading, {
     creep: Stats; recovered: Stats; remaining: Stats;
     wear: Stats | null; creepShare: Stats | null; probWearNegative: number | null;
+    /** Penetration not detected: fraction of samples whose remaining creep exceeds the detection limit */
+    probRemainingAboveLod: number | null;
     byLaw: Partial<Record<LawId, Stats>>;
   }>;
   /** Pooled static + dynamic samples (envelope of both scenarios) */
@@ -223,13 +225,17 @@ export async function runMonteCarlo(
   const lawIndex = new Uint8Array(n);
   const Rarr = new Float64Array(n);
   const meas = c.measured;
+  // not detected: D is only known to lie in [0, LoD] — no wear / creep split is computed
+  const notDetected = !!meas?.notDetected;
+  const lod = meas?.detectionLimitUm ?? 0;
+  const split = !!meas && !notDetected;
   const Darr = meas ? new Float64Array(n) : null;
   const mk = (): ModeSamples => ({
     creepUm: new Float64Array(n),
     recoveredUm: new Float64Array(n),
     remainingUm: new Float64Array(n),
-    wearUm: meas ? new Float64Array(n) : null,
-    creepShare: meas ? new Float64Array(n) : null,
+    wearUm: split ? new Float64Array(n) : null,
+    creepShare: split ? new Float64Array(n) : null,
   });
   const modes: Record<Loading, ModeSamples> = { static: mk(), dynamic: mk() };
 
@@ -240,7 +246,7 @@ export async function runMonteCarlo(
     const p = sampleParams(c, rng);
     const R = recoveryFor(c, p);
     Rarr[s] = R;
-    const D = meas ? normal(rng, meas.penetrationUm, meas.sdUm) : 0;
+    const D = !meas ? 0 : notDetected ? uniform(rng, { nominal: lod / 2, lo: 0, hi: lod }) : normal(rng, meas.penetrationUm, meas.sdUm);
     if (Darr) Darr[s] = D;
     for (const mode of MODES) {
       const sim = runSim(c, p, laws[li], mode, c.inVivoTempC, RES_MC);
@@ -275,7 +281,14 @@ export async function runMonteCarlo(
       for (const w of ms.wearUm) if (w < 0) k++;
       pNeg = k / n;
     }
+    let pAbove: number | null = null;
+    if (notDetected && lod > 0) {
+      let k = 0;
+      for (const v of ms.remainingUm) if (v > lod) k++;
+      pAbove = k / n;
+    }
     summary[mode] = {
+      probRemainingAboveLod: pAbove,
       creep: summarize(ms.creepUm),
       recovered: summarize(ms.recoveredUm),
       remaining: summarize(ms.remainingUm),
@@ -314,17 +327,34 @@ export interface Verdict {
  * uncertainty, or the measured penetration itself is below the detection limit / 2·SD.
  */
 export function verdict(
-  m: { penetrationUm: number; sdUm: number; detectionLimitUm?: number | null },
+  m: { penetrationUm: number; sdUm: number; detectionLimitUm?: number | null; notDetected?: boolean },
   remaining: Stats, wear: Stats | null, probWearNegative: number | null,
 ): Verdict {
-  const u = Math.max(m.sdUm, 1e-9);
+  const u = Math.max(m.sdUm, 0);
   const lod = m.detectionLimitUm ?? 0;
-  const fmt = (x: number) => (Math.abs(x) >= 100 ? x.toFixed(0) : x.toPrecision(2));
+  const fmt = (x: number) => (Math.abs(x) >= 100 ? x.toFixed(0) : Math.abs(x) >= 1 ? x.toPrecision(2) : x === 0 ? '0' : x.toPrecision(2));
+  if (m.notDetected) {
+    if (remaining.p50 > lod) {
+      return {
+        level: 'inconsistent',
+        title: `Penetration not detected, but the model predicts more remaining creep than the detection limit`,
+        detail: `HipWear found no directional penetration (< ${fmt(lod)} µm), while the predicted remaining creep is ${fmt(remaining.p50)} µm (90 %: ${fmt(remaining.p5)}–${fmt(remaining.p95)} µm). The creep model over-predicts for this liner (load, clearance, material, time) or more creep has recovered.`,
+      };
+    }
+    return {
+      level: 'small-signal',
+      title: `Penetration not detected (< ${fmt(lod)} µm) — creep below the detection limit`,
+      detail: `HipWear found no directional penetration, so D is only known to lie between 0 and ${fmt(lod)} µm. The predicted remaining creep (median ${fmt(remaining.p50)} µm, 90 %: ${fmt(remaining.p5)}–${fmt(remaining.p95)} µm) is below that limit: consistent with the measurement, but creep and wear cannot be separated on this liner.`,
+    };
+  }
   if (remaining.p50 <= 2 * u || m.penetrationUm <= Math.max(2 * u, lod)) {
+    const why = m.penetrationUm <= Math.max(2 * u, lod)
+      ? `the measured penetration (${fmt(m.penetrationUm)} µm) is not clearly above its uncertainty (±${fmt(u)} µm${lod ? `, detection limit ${fmt(lod)} µm` : ''})`
+      : `the predicted remaining creep (median ${fmt(remaining.p50)} µm) is smaller than twice the measurement uncertainty (2·SD = ${fmt(2 * u)} µm)`;
     return {
       level: 'small-signal',
       title: 'Creep of the order of the measurement uncertainty',
-      detail: `The predicted remaining creep (median ${fmt(remaining.p50)} µm) and/or the measured penetration (${fmt(m.penetrationUm)} µm) are not clearly above the measurement uncertainty (±${fmt(u)} µm, 2·SD = ${fmt(2 * u)} µm${lod ? `, detection limit ${fmt(lod)} µm` : ''}). Creep and wear cannot be separated for this liner; report creep as being of the same order as the uncertainty.`,
+      detail: `Here ${why}. Creep and wear cannot be separated for this liner; report creep as being of the same order as the uncertainty.`,
     };
   }
   if (probWearNegative != null && probWearNegative > 0.5) {

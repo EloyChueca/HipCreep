@@ -155,6 +155,21 @@ test('phantom round-trip: parser reads geometry, measurement and mesh', () => {
   assert.ok(L.mesh && L.mesh.faces.length > 1000);
 });
 
+test('penetration not detected: D only bounded by the detection limit', () => {
+  const ph = makePhantom() as any;
+  ph.wear.linearWearUm = 0; ph.wear.linearWearSdUm = null;
+  ph.wear.linearWearCorrectedUm = null; ph.wear.linearWearCorrectedSdUm = null;
+  ph.wear.detectionLimitUm = 420; ph.geometry.displacedCenter = null;
+  const L = parseHipWearInput(JSON.stringify(ph), 'nd.json');
+  assert.equal(L.measured!.notDetected, true);
+  assert.equal(L.measured!.sdUm, 210);
+  const below = verdict(L.measured!, summarize([30, 45, 140]), null, null);
+  assert.equal(below.level, 'small-signal');
+  assert.ok(!/e-\d/.test(below.detail), below.detail);
+  const above = verdict(L.measured!, summarize([400, 500, 700]), null, null);
+  assert.equal(above.level, 'inconsistent');
+});
+
 test('noise floor: E[(X−a)+] matches a direct integration', () => {
   let s = 0; const sig = 3, a = 4, N = 200000;
   for (let i = 0; i < N; i++) { const x = -8 * sig + (16 * sig * (i + 0.5)) / N; const pdf = Math.exp(-0.5 * (x / sig) ** 2) / (sig * Math.sqrt(2 * Math.PI)); s += Math.max(0, x - a) * pdf * (16 * sig / N); }

@@ -65,7 +65,8 @@ const SECTIONS: Section[] = [
       { kind: 'check', id: 'manualMeasurement', label: 'Use a measured penetration', help: 'Filled automatically from a HipWear file. Without it, only the creep prediction is computed.' },
       { kind: 'number', id: 'penetrationUm', label: 'Max linear penetration D', unit: 'µm', step: 1, min: 0 },
       { kind: 'number', id: 'penetrationSdUm', label: 'Uncertainty of D (SD)', unit: 'µm', step: 1, min: 0 },
-      { kind: 'number', id: 'detectionLimitUm', label: 'Detection limit (optional)', unit: 'µm', step: 1, min: 0 },
+      { kind: 'number', id: 'detectionLimitUm', label: 'Detection limit (optional)', unit: 'µm', step: 1, min: 0,
+        help: 'D = 0 with a detection limit means "not detected" (D below the limit).' },
     ],
   },
   {
@@ -235,13 +236,17 @@ export function readForm(base: CaseInput, uiBase: UiSettings): { c: CaseInput; u
   c.inVivoTempC = getNum('inVivoTempC', base.inVivoTempC);
   const manual = getChk('manualMeasurement');
   const D = getNum('penetrationUm', NaN);
+  const lod = Number.isFinite(getNum('detectionLimitUm', NaN)) ? getNum('detectionLimitUm', 0) : null;
+  // D = 0 with a detection limit = "not detected" (as HipWear exports it)
+  const notDetected = Number.isFinite(D) && D <= 0 && lod != null && lod > 0;
   c.measured = manual && Number.isFinite(D)
     ? {
-      penetrationUm: D,
-      sdUm: Math.max(0, getNum('penetrationSdUm', 0)),
-      detectionLimitUm: Number.isFinite(getNum('detectionLimitUm', NaN)) ? getNum('detectionLimitUm', 0) : null,
+      penetrationUm: notDetected ? 0 : D,
+      sdUm: notDetected ? lod! / 2 : Math.max(0, getNum('penetrationSdUm', 0)),
+      detectionLimitUm: lod,
       volumeMm3: base.measured?.volumeMm3 ?? null,
       volumeSdMm3: base.measured?.volumeSdMm3 ?? null,
+      notDetected,
     }
     : null;
   c.peakForceBW = getRange('peakForceBW', base.peakForceBW);

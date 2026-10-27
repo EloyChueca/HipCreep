@@ -90,3 +90,22 @@ export function normCdf(x: number): number {
   const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z);
   return x >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y);
 }
+
+/**
+ * Monte Carlo sampling error (±1 SE) of a percentile, by batch means: the samples are split
+ * into nb consecutive batches, the percentile is computed in each, and SE = SD / √nb.
+ * It shrinks as 1/√n with more samples; the spread of the distribution itself does not.
+ */
+export function percentileSE(values: ArrayLike<number>, q: number, nb = 10): number {
+  const n = values.length;
+  const size = Math.floor(n / nb);
+  if (size < 5) return NaN;
+  const est: number[] = [];
+  for (let b = 0; b < nb; b++) {
+    const chunk = Array.from({ length: size }, (_, i) => values[b * size + i]).filter(Number.isFinite).sort((x, y) => x - y);
+    if (chunk.length) est.push(percentile(chunk, q));
+  }
+  const m = est.reduce((s, x) => s + x, 0) / est.length;
+  const sd = Math.sqrt(est.reduce((s, x) => s + (x - m) ** 2, 0) / Math.max(1, est.length - 1));
+  return sd / Math.sqrt(est.length);
+}
