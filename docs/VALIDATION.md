@@ -135,7 +135,7 @@ Changes (all from the papers above):
 | | remelted HXLPE vs conventional (measured +10–17 %) | −14 to −16 % | +10 % (before recovery) |
 | V4 Bevill (independent) | trends with head, wall, clearance | ✔ ✔ ✔ | ✔ ✔ ✔ |
 | V5 Rochcongar (independent) | creep day 7 → year 1, dynamic (≈ 140 µm creep + bedding-in) | 17 µm | 22–25 µm |
-| V6 Galetz (independent) | a_T 23 → 37 °C (measured ≈ 3.3) | 61.5 | 2.8–4.4 |
+| V6 Galetz (independent) | a_T 23 → 37 °C (measured ≈ 3.3) | 61.5 | 3.2–4.6 (nominal 3.7) |
 
 ### Estok 2005 in detail (v0.4.0, MC median and 90 % interval, µm)
 
@@ -194,6 +194,6 @@ Long-loading scenario vs measured: +10 %, +11 %, +2 %, −3 %. Same result with 
 | | creep before recovery | −9…−31 % | +3…+17 % | +2…+16 % |
 | V4 Bevill (independent) | trends | ✔ | ✔ | ✔ |
 | V5 Rochcongar (independent) | creep day 7 → year 1 (≈ 140 µm clinical) | 17 µm | 22–25 µm | 21–24 µm |
-| V6 Galetz (independent) | a_T 23 → 37 °C (≈ 3.3) | 61.5 | 2.8–4.4 | 2.8–4.4 |
+| V6 Galetz (independent) | a_T 23 → 37 °C (≈ 3.3) | 61.5 | 3.2–4.6 (nominal 3.7) | 3.2–4.6 (nominal 3.7) |
 
 Still open: in vivo bedding-in (V5) is outside the model (sliding-assisted plastic flow, seating, run-in wear).
