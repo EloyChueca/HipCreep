@@ -3,8 +3,10 @@
 // ------------------------------------------------------------
 // The azimuthal-equidistant plane (pole at the centre, penetration direction up,
 // distance from the centre = arc length R·θ from the pole) is drawn as a height
-// field: height = deviation (µm, vertically exaggerated), colour = same scale as
-// the 2D maps. Canvas 2D renderer (painter's algorithm), no dependencies.
+// field. Sign convention of the 3D view: height = R − r, i.e. material above the
+// original sphere (elevation, added material) is positive / up and penetration
+// (wear, creep) is negative / down — the opposite of the 2D maps. The colours keep
+// their physical meaning (red = penetration) so they match the 2D maps. Canvas 2D renderer (painter's algorithm), no dependencies.
 // Drag to rotate, wheel to zoom, double-click to reset.
 // ============================================================
 
@@ -83,7 +85,7 @@ function buildMesh(g: PolarGrid, radiusMm: number): Mesh3D {
   // pole vertex: mean of the first ring
   let s = 0, n = 0;
   for (let ia = 0; ia < nAz; ia++) { const val = value[ia]; if (Number.isFinite(val)) { s += val; n++; } }
-  v[0] = n ? s / n : NaN;
+  v[0] = n ? -s / n : NaN;
   let vAbsMax = 0;
   for (let it = 0; it < nTheta; it++) {
     const th = ((it + 0.5) / nTheta) * maxThetaDeg * Math.PI / 180;
@@ -93,7 +95,7 @@ function buildMesh(g: PolarGrid, radiusMm: number): Mesh3D {
       const k = 1 + it * nAz + ia;
       x[k] = rho * Math.sin(az);
       y[k] = rho * Math.cos(az);
-      v[k] = value[it * nAz + ia];
+      v[k] = -value[it * nAz + ia];   // 3D convention: elevation +, penetration −
       if (Number.isFinite(v[k]) && Math.abs(v[k]) > vAbsMax) vAbsMax = Math.abs(v[k]);
     }
   }
@@ -124,10 +126,11 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
   card.className = 'chart-card surface3d';
   card.innerHTML = `
     <div class="chart-title">${o.title ?? '3D reconstruction of the plane'}</div>
-    <div class="chart-sub">Height = deviation from the original sphere (vertically exaggerated), colour = same scale as the 2D maps. Drag to rotate · wheel to zoom · double-click to reset.</div>
+    <div class="chart-sub">Height = position of the surface relative to the original sphere (R − r), vertically exaggerated: <b>material added above the sphere (elevation) is positive, up</b>; <b>penetration (wear, creep) is negative, down</b> — the opposite sign of the 2D maps. Colours as in the 2D maps (red = penetration, blue = elevation). Drag to rotate · wheel to zoom · double-click to reset.</div>
     <div class="map-controls">
       <label>Field <select class="s3-field">${o.fields.map((f) => `<option value="${f.key}">${f.label}</option>`).join('')}</select></label>
-      <label>Vertical exaggeration <input class="s3-exag" type="range" min="-2" max="2" step="0.05" value="0" style="vertical-align:middle;width:140px"> <span class="s3-exag-val num"></span></label>
+      <label>Vertical exaggeration <input class="s3-exag" type="range" min="-2" max="2" step="0.05" value="0" style="vertical-align:middle;width:140px"></label>
+      <label>× <input class="s3-exag-num" type="number" min="0.1" step="any" style="width:80px" title="Height magnification relative to the true scale (1 = true scale)"> vs true scale</label>
       <button class="btn s3-reset" type="button">Reset view</button>
     </div>`;
   const canvas = document.createElement('canvas');
@@ -140,14 +143,17 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
   canvas.setAttribute('aria-label', '3D height map of the deviation from the original sphere');
   card.appendChild(canvas);
   const legend = document.createElement('canvas');
-  legend.width = 600; legend.height = 64;
+  legend.width = 600; legend.height = 96;
   legend.style.width = '100%'; legend.style.maxWidth = '300px';
   card.appendChild(legend);
   container.appendChild(card);
 
   const fieldSel = card.querySelector('.s3-field') as HTMLSelectElement;
   const exagIn = card.querySelector('.s3-exag') as HTMLInputElement;
-  const exagVal = card.querySelector('.s3-exag-val') as HTMLSpanElement;
+  const exagNum = card.querySelector('.s3-exag-num') as HTMLInputElement;
+  /** mm of height per µm of deviation at slider position 0 */
+  const baseScale = () => 0.2 * mesh.rhoMax / mesh.vAbsMax;
+  let exag = 1;
 
   let field = o.fields[0];
   let mesh = buildMesh(field.grid, o.radiusMm);
@@ -160,10 +166,10 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
   const drawLegend = () => {
     const b = legend.getContext('2d')!;
     b.clearRect(0, 0, legend.width, legend.height);
-    const lo = field.scale.kind === 'diverging' ? -field.scale.limit : 0;
-    const hi = field.scale.kind === 'diverging' ? field.scale.limit : field.scale.max;
+    const lo = field.scale.kind === 'diverging' ? -field.scale.limit : -field.scale.max;
+    const hi = field.scale.kind === 'diverging' ? field.scale.limit : 0;
     for (let px = 0; px < 560; px++) {
-      const c = color(lo + ((hi - lo) * px) / 559);
+      const c = color(-(lo + ((hi - lo) * px) / 559));
       b.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
       b.fillRect(20 + px, 4, 1, 22);
     }
@@ -171,6 +177,8 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
     b.font = '24px system-ui, sans-serif';
     b.textAlign = 'left'; b.fillText(`${fmt(lo)}`, 20, 54);
     b.textAlign = 'center'; b.fillText(field.scale.kind === 'diverging' ? `0 ${field.unit}` : `${fmt((lo + hi) / 2)} ${field.unit}`, 300, 54);
+    b.textAlign = 'left'; b.fillText('← penetration (−)', 20, 86);
+    if (field.scale.kind === 'diverging') { b.textAlign = 'right'; b.fillText('elevation (+) →', 580, 86); }
     b.textAlign = 'right'; b.fillText(`${fmt(hi)} ${field.unit}`, 580, 54);
   };
 
@@ -185,9 +193,8 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = cssVar('--chart-surface');
     g.fillRect(0, 0, W, H);
-    const exag = Math.pow(10, parseFloat(exagIn.value));
-    const zScale = (0.2 * mesh.rhoMax / mesh.vAbsMax) * exag;   // mm per µm
-    exagVal.textContent = `×${fmt(zScale * 1000)} vs true scale`;
+    const zScale = baseScale() * exag;   // mm per µm
+    if (document.activeElement !== exagNum) exagNum.value = fmt(zScale * 1000);
     const s = (0.42 * Math.min(W, H * 1.25) / mesh.rhoMax) * zoom;
     const cx = W / 2, cy = H / 2 + 20;
     const cyaw = Math.cos(yaw), syaw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -227,7 +234,7 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
       const lam = Math.abs(nx * L[0] + ny * L[1] + nz * L[2]) / Ln;
       const shade = 0.6 + 0.4 * lam;
       const val = d >= 0 ? (mesh.v[a] + mesh.v[b] + mesh.v[c] + mesh.v[d]) / 4 : (mesh.v[a] + mesh.v[b] + mesh.v[c]) / 3;
-      const col = color(val);
+      const col = color(-val);   // colours keep the physical meaning of the 2D maps
       const fill = `rgb(${Math.round(col[0] * shade)},${Math.round(col[1] * shade)},${Math.round(col[2] * shade)})`;
       g.beginPath();
       g.moveTo(projX[a], projY[a]); g.lineTo(projX[b], projY[b]); g.lineTo(projX[c], projY[c]);
@@ -269,7 +276,7 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
       if (iMin < 0 || mesh.v[i] < mesh.v[iMin]) iMin = i;
     }
     g.font = '12px system-ui, sans-serif';
-    for (const [i, lab] of [[iMax, 'max'], [iMin, 'min']] as const) {
+    for (const [i, lab] of [[iMax, 'highest'], [iMin, 'deepest']] as const) {
       if (i < 0) continue;
       g.fillStyle = cssVar('--text-primary');
       g.beginPath(); g.arc(projX[i], projY[i], 3.5, 0, 2 * Math.PI); g.fill();
@@ -314,10 +321,20 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
   });
   canvas.addEventListener('mouseleave', hideTip);
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom = Math.max(0.4, Math.min(6, zoom * Math.exp(-e.deltaY * 0.0015))); request(); }, { passive: false });
-  const reset = () => { yaw = -0.5; pitch = 50 * Math.PI / 180; zoom = 1; exagIn.value = '0'; request(); };
+  const reset = () => { yaw = -0.5; pitch = 50 * Math.PI / 180; zoom = 1; exagIn.value = '0'; exag = 1; request(); };
   canvas.addEventListener('dblclick', reset);
   (card.querySelector('.s3-reset') as HTMLButtonElement).addEventListener('click', reset);
-  exagIn.addEventListener('input', request);
+  exagIn.addEventListener('input', () => { exag = Math.pow(10, parseFloat(exagIn.value)); request(); });
+  // typed magnification (× vs true scale): any positive value, the slider follows within its range
+  exagNum.addEventListener('change', () => {
+    const F = parseFloat(exagNum.value.replace(',', '.'));
+    if (!(F > 0)) { request(); return; }
+    exag = F / (baseScale() * 1000);
+    exagIn.value = String(Math.max(-2, Math.min(2, Math.log10(exag))));
+    exagNum.blur();
+    request();
+  });
+  exagNum.addEventListener('keydown', (e) => { if (e.key === 'Enter') exagNum.dispatchEvent(new Event('change')); });
   fieldSel.addEventListener('change', () => {
     field = o.fields.find((f) => f.key === fieldSel.value) ?? o.fields[0];
     mesh = buildMesh(field.grid, o.radiusMm);
