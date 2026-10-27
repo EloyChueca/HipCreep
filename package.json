@@ -1,14 +1,15 @@
 {
   "name": "hipcreep",
   "version": "0.3.0",
-  "description": "HipCreep — analytic creep estimation of UHMWPE acetabular liners and creep/wear separation using HipWear results",
+  "description": "HipCreep \u2014 analytic creep estimation of UHMWPE acetabular liners and creep/wear separation using HipWear results",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "node --test \"tests/*.test.ts\"",
-    "deploy": "npm run build && npx wrangler pages deploy dist"
+    "deploy": "npm run build && npx wrangler pages deploy dist",
+    "validate": "node validation/validate.ts"
   },
   "license": "ISC",
   "devDependencies": {

@@ -1,0 +1,103 @@
+# HipCreep — validation against published data
+
+Script: `npm run validate` (`validation/validate.ts`, results in `validation/results.json`).
+Every case is run with the model as it is (no fitting): per law with the nominal parameters, and with the
+Monte Carlo (law + parameters sampled as in the app, 150–400 samples). Laboratory cases use the same
+geometry, load, temperature and material preset as the paper; unknown inputs (radial clearance, load
+direction) use the app defaults (clearance 0.05 mm, range 0–0.15 mm).
+
+## Baseline — v0.3.0 (before any change)
+
+### V1 · Lee & Pienkowski 1998 — static compression of the material (unirradiated GUR 4150HP, 36.5 °C)
+Creep strain (%) measured after 5-min unloadings; paper: ε(10⁴ min) = 3.491·10⁻³·p, slopes 1.406 / 2.707 / 6.128·10⁻³ per decade.
+
+| p (MPa) | t (min) | Measured | Lee 2003 → static (k = 0.65) | Deng 1998 | Lewis 2001 (Ea 19.3 / 53.7) |
+|---|---|---|---|---|---|
+| 2 | 10 | 0.28 | 0.28 | 0.17 | 0.61 / 1.00 |
+| 2 | 10⁴ | 0.70 | 0.64 (−9 %) | 0.37 (−47 %) | 1.66 / 2.15 |
+| 4 | 10 | 0.58 | 0.56 | 0.34 | 1.22 / 1.99 |
+| 4 | 10⁴ | 1.40 | 1.28 (−9 %) | 0.74 (−47 %) | 3.32 / 4.29 |
+| 8 | 10 | 0.95 | 1.12 | 0.68 | 2.44 / 3.98 |
+| 8 | 10⁴ | 2.79 | 2.56 (−8 %) | 1.47 (−47 %) | 6.64 / 8.58 |
+
+The static/dynamic conversion of Lee 2003 (k = 0.61–0.70) reproduces the static data of the same group within
+≈ 10 %. Deng 1998 (linear viscoelastic, 1 MPa) gives about half; Lewis 2001 2.4–3 times more.
+
+### V2 · Takahashi et al. 2016 — liners under 3000 N static, 25 °C, 72 h
+Creep-strain rate (10⁻³ per decade of minutes). ArCom = conventional (33 kGy, argon) → preset *conventional*;
+E1 = vitamin-E diffused HXLPE → preset *vite-hxlpe*. Load 48° from the cup axis (inclination 45°, anteversion 20°).
+
+| Liner | Ø / wall (mm) | Measured | Lee 2003 | Deng 1998 | Lewis 2001 | MC median (P5–P95) |
+|---|---|---|---|---|---|---|
+| ArCom | 28 / 4.8 | 5.51 | 4.28 (−22 %) | 3.25 | 8.63 | 4.02 (2.36–10.1) |
+| ArCom | 32 / 4.8 | 4.40 | 3.54 (−20 %) | 2.73 | 6.91 | 3.33 (1.95–8.14) |
+| ArCom | 28 / 6.8 | 4.60 | 3.72 (−19 %) | 2.78 | 7.74 | 3.42 (2.05–9.05) |
+| ArCom | 28 / 8.9 | 4.19 | 3.30 (−21 %) | 2.43 | 7.00 | 3.04 (1.81–8.21) |
+| E1 | 28 / 4.8 | 4.76 | 4.64 (−3 %) | 3.53 | 9.50 | 3.98 (2.05–11.1) |
+| E1 | 32 / 4.8 | 3.60 | 3.82 (+6 %) | 2.95 | 7.56 | 3.31 (1.70–8.79) |
+| E1 | 36 / 4.8 | 3.44 | 3.23 (−6 %) | 2.53 | 6.23 | 2.85 (1.44–7.20) |
+| E1 | 28 / 6.8 | 3.88 | 4.04 (+4 %) | 3.02 | 8.47 | 3.36 (1.76–9.90) |
+| E1 | 28 / 8.9 | 3.52 | 3.58 (+2 %) | 2.64 | 7.66 | 2.99 (1.55–9.00) |
+
+* Effect of diameter and wall thickness reproduced (28→32 mm: −17 to −18 % vs −20 to −24 % measured;
+  4.8→8.9 mm: −23 % vs −24 to −26 %); absolute penetration grows with the wall, as measured.
+* Material: measured E1/ArCom ≈ 0.84, model 0.90/0.82 = 1.10 → the *conventional* factor (0.82) is too low.
+  Factor implied with Lee 2003: conventional ≈ 1.03 (1.01–1.06), vitamin-E HXLPE ≈ 0.89 (0.85–0.96).
+* The rate per decade does not depend on Ea for Lee 2003 (log-linear law).
+
+### V3 · Estok et al. 2005 — liners, 3330 N peak at 2 Hz without motion, 37 °C, measured after 48 h unloaded
+Penetration (µm) at 10⁴ / 2·10⁶ / 4·10⁶ cycles. Loading time = cycles / 2 Hz; the model value is the creep left
+after 48 h of recovery at 22 °C (R ≈ 0.44 conventional, 0.51 HXLPE).
+
+| Liner | Measured | Lee 2003 (remaining) | MC remaining, median (P5–P95) at 4 M | MC creep before recovery at 4 M |
+|---|---|---|---|---|
+| Conventional Ø32, 9 mm | 38 / 87 / 97 | 28 / 43 / 43 | 49 (26–170) | 88 |
+| HXLPE (Durasul) Ø32, 9 mm | 38 / 97 / 107 | 26 / 40 / 40 | 42 (19–160) | 85 |
+| Conventional Ø28, 10.25 mm | 25 / 112 / 132 | 35 / 54 / 54 | 63 (34–219) | 110 |
+| HXLPE (Durasul) Ø28, 10.25 mm | 27 / 131 / 155 | 33 / 51 / 51 | 53 (24–202) | 107 |
+
+* Measured values fall inside the 90 % interval but well above the median: the remaining creep is
+  under-predicted ≈ 2× (Lee 2003 0.33–0.44 of the measured value). The creep before recovery (70–90 % of the
+  measured value) is close, so the gap is in the recovery assumed after 48 h and/or in the growth of creep
+  beyond 10⁴ min (Lee 2003 capped; measured +11–18 % between 2 M and 4 M cycles).
+* Ø28 > Ø32 reproduced (+25 % vs +36 %). Remelted HXLPE creeps 10–17 % MORE than conventional here, while
+  the model gives it less (larger recovery).
+
+### V4 · Bevill et al. 2005 — finite elements, 2000 min of gait loading (trends)
+Static 1500 N for 2000 min, 37 °C, E = 1400 MPa, ν = 0.3, unirradiated (the FE law is Lee & Pienkowski 1998).
+
+| Parameter | Bevill | HipCreep (Lee 2003) |
+|---|---|---|
+| Head 22 → 36 mm (wall 8) | creep decreases | 107 → 61 µm ✔ |
+| Wall 4 → 16 mm (Ø32) | creep increases | 50 → 91 µm ✔ |
+| Diametral clearance 0.01 → 0.5 mm | creep increases | 56 → 109 µm ✔ |
+| Range | 10–75 µm | 50–110 µm (the FE gait loading cannot be reproduced exactly) |
+
+### V5 · Rochcongar et al. 2021 — RSA in vivo, monoblock RM Pressfit cups
+Penetration from day 7 to year 1: 160 µm (vitamin-E HXLPE), 200 µm (UHMWPE); wear rate years 1–5 20 / 60 µm/y,
+so creep + bedding-in in year 1 ≈ 140 µm (RSA precision 72 µm). Model (28 mm head, 10 mm wall, 78 kg, 2.5 BW):
+
+| Mode | Lee 2003 | Deng 1998 | Lewis 2001 | MC median (P5–P95) |
+|---|---|---|---|---|
+| Dynamic | 15–18 µm | 9–11 | 52–63 | 17 (8–72) |
+| Static | 2–3 (Lee capped at 10⁴ min) | 11–13 | 84–105 | 16 (1–117) |
+
+The uniaxial creep laws explain only 10–15 % of the clinical first-year penetration after day 7: bedding-in in
+vivo contains more than compressive creep (settling, sliding-assisted plastic flow, run-in wear, RSA error).
+
+### V6 · Temperature — Galetz & Glatzel 2010, Bergmann et al. 2001
+* Galetz: same deformation under tribological loading after 3 M cycles at 23 °C, ≈ 0.9 M at 37 °C, ≈ 0.5 M at
+  45 °C → shift 3.3 and 6 → Ea ≈ 15–16 kcal/mol for the macroscopic deformation (the yield Eyring process gives
+  200 kJ/mol = 48 kcal/mol). HipCreep: nominal Ea 53.7 → shift 61.5 (23→37 °C); lower bound 19.3 → 4.4.
+* Galetz: deformation under sliding keeps growing up to 3 M cycles (≈ 100 → 250 µm at 37 °C), unlike static creep.
+* Bergmann: head temperature after 1 h of walking 40.0–43.1 °C (mean 41.3 °C) with PE cups. Effect on the
+  dynamic creep (6 months): 62 → 65 µm (+5 %) — small.
+
+### Summary of the baseline
+1. Lee 2003 (with the static conversion k) is the most accurate law: within 10 % of V1, 2–22 % of V2, correct trends.
+2. Deng 1998 under-predicts (−30 to −50 %); Lewis 2001 over-predicts (×1.6–3); the pooled Monte Carlo is
+   therefore wide and its median biased low.
+3. Material factors: *conventional* 0.82 too low (data ≈ 1.0); vitamin-E HXLPE 0.90 confirmed; remelted HXLPE ≥ conventional.
+4. Remaining creep after a short rest under-predicted ≈ 2× (Estok): recovery and/or creep beyond 10⁴ min.
+5. Ea nominal 53.7 kcal/mol is not supported for creep; 15–20 kcal/mol is.
+6. In vivo bedding-in (RSA) is much larger than the compressive creep predicted by any law.
