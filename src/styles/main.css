@@ -22,6 +22,7 @@
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
+  --series-4: #8a5cd6;
   /* diverging map poles + neutral midpoint */
   --div-neg: #2a78d6;
   --div-mid: #f0efec;
@@ -59,6 +60,7 @@
   --series-1: #3987e5;
   --series-2: #d95926;
   --series-3: #199e70;
+  --series-4: #9d74e8;
   --div-neg: #3987e5;
   --div-mid: #383835;
   --div-pos: #e66767;
@@ -84,6 +86,7 @@
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
+    --series-4: #9d74e8;
     --div-neg: #3987e5;
     --div-mid: #383835;
     --div-pos: #e66767;
@@ -277,3 +280,7 @@ details.explain.big > summary { font-size: 15px; color: var(--text-primary); }
 .subhead { font-size: 13px; margin: 16px 0 8px; color: var(--text-secondary); }
 .surface3d { margin-bottom: 4px; }
 .surface3d canvas.s3-canvas { border-radius: var(--radius-sm); touch-action: none; }
+
+/* law selection: show + Monte Carlo checkboxes */
+.law-row { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 3px 0; }
+.law-row input { margin: 0; }

@@ -1,6 +1,11 @@
 # HipCreep — validation against published data
 
-Script: `npm run validate` (`validation/validate.ts`, results in `validation/results.json`).
+Script: `npm run validate` (`validation/validate.ts`, results in `validation/results.json`; console output of each
+version in `validation/output_v*.txt`).
+
+**Calibration vs validation.** Since v0.4, Lee & Pienkowski 1998 (V1) is a creep law of the model and Takahashi 2016
+(V2) sets the material factors, so they are calibration data. Estok 2005 (V3), Bevill 2005 (V4), Rochcongar 2021 (V5)
+and Galetz 2010 (V6, the deformation-under-sliding shift) remain independent checks.
 Every case is run with the model as it is (no fitting): per law with the nominal parameters, and with the
 Monte Carlo (law + parameters sampled as in the app, 150–400 samples). Laboratory cases use the same
 geometry, load, temperature and material preset as the paper; unknown inputs (radial clearance, load
@@ -101,3 +106,55 @@ vivo contains more than compressive creep (settling, sliding-assisted plastic fl
 4. Remaining creep after a short rest under-predicted ≈ 2× (Estok): recovery and/or creep beyond 10⁴ min.
 5. Ea nominal 53.7 kcal/mol is not supported for creep; 15–20 kcal/mol is.
 6. In vivo bedding-in (RSA) is much larger than the compressive creep predicted by any law.
+
+## v0.4.0 — after the changes
+
+Changes (all from the papers above):
+
+| Change | v0.3.0 | v0.4.0 | Source |
+|---|---|---|---|
+| New law | — | Lee & Pienkowski 1998, static, 36.5 °C | Lee 1998 |
+| Monte Carlo laws | Lee 2003, Deng 1998, Lewis 2001 | Lee 2003, Lee 1998 (Deng, Lewis shown as references) | V1, V2 |
+| Lee laws beyond 10⁴ min | cap / log sampled | log-linear | Lee 1998 (steady rate), Estok 2005 |
+| Ea | 19.3–53.7, nominal 53.7 | 15–20, nominal 17 | Galetz 2010, Burger 2006 |
+| Conventional factor | 0.82 (0.76–1.0) | 1.0 (0.85–1.2) | Takahashi 2016 |
+| HXLPE factor | 0.90 (0.55–1.14), one grade | remelted 1.13 · annealed 0.85 · vitamin-E 0.86 · unspecified 1.0 | Estok 2005, Takahashi 2016, Burger 2006 |
+| Recovery R₁₀ₖ lower bound | 0.40 (conv.) / 0.45 (HXLPE) | 0.30 / 0.35 | Galetz 2010 (permanent strain grows with loading time) |
+
+### Before / after
+
+| Check | Metric | v0.3.0 | v0.4.0 |
+|---|---|---|---|
+| V2 Takahashi (calibration) | MC median error, ArCom | −24 to −27 % | −7 to −11 % |
+| | MC median error, E1 | −8 to −17 % | −3 to −14 % |
+| | 90 % interval width (ArCom Ø28/4.8) | 2.36–10.1 (×4.3) | 3.40–6.79 (×2.0) |
+| | E1 / ArCom ratio (measured 0.86) | 1.10 | 0.87 |
+| **V3 Estok (independent)** | creep before recovery, 4 M cycles (MC median) | −9 to −31 % | **+3 to +17 %** |
+| | remaining after 48 h, 4 M cycles (MC median) | −49 to −66 % | −30 to −46 % |
+| | measured inside the 90 % interval (remaining) | 4 / 4 (interval very wide) | 0 / 4 (P95 95–122 vs 97–155) |
+| | remelted HXLPE vs conventional (measured +10–17 %) | −14 to −16 % | +10 % (before recovery) |
+| V4 Bevill (independent) | trends with head, wall, clearance | ✔ ✔ ✔ | ✔ ✔ ✔ |
+| V5 Rochcongar (independent) | creep day 7 → year 1, dynamic (≈ 140 µm creep + bedding-in) | 17 µm | 22–25 µm |
+| V6 Galetz (independent) | a_T 23 → 37 °C (measured ≈ 3.3) | 61.5 | 2.8–4.4 |
+
+### Estok 2005 in detail (v0.4.0, MC median and 90 % interval, µm)
+
+| Liner | Measured 10⁴ / 2 M / 4 M | Remaining after 48 h | Creep before recovery, 4 M |
+|---|---|---|---|
+| Conventional Ø32 | 38 / 87 / 97 | 38 / 65 / 68 (49–95) | 113 |
+| Remelted HXLPE Ø32 | 38 / 97 / 107 | 37 / 63 / 66 (42–97) | 125 |
+| Conventional Ø28 | 25 / 112 / 132 | 48 / 83 / 87 (63–118) | 143 |
+| Remelted HXLPE Ø28 | 27 / 131 / 155 | 46 / 79 / 84 (55–122) | 159 |
+
+### What is left
+
+1. **Recovery after long loading (open).** With the new creep the creep before recovery matches Estok within
+   3–17 %, but the model still removes ≈ 40 % for the 48 h of rest, while Estok's penetration after 48 h equals the
+   full creep. Lee & Pienkowski's 51 % was measured after 10⁴ min of loading; Galetz shows the permanent part grows with
+   the loading time. A recovery that decreases with the loading duration would close the gap, but it would have to be
+   fitted on Estok, which would then stop being an independent check — decision pending.
+2. **In vivo bedding-in (not modelled).** The compressive creep laws explain ≈ 15–25 % of the first-year RSA
+   penetration after day 7; sliding-assisted plastic flow (Galetz: deformation still growing at 3 M cycles), seating and
+   run-in wear are outside the model.
+3. Bevill's magnitudes (10–75 µm) are below the model (50–110 µm) because their gait loading over 2000 min cannot be
+   reproduced exactly; only the trends are compared.

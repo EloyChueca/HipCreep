@@ -48,15 +48,22 @@ F = Σ p · cosψ · dA                                  (solved for the head di
 | Law | Material / test | Native T | Loading | Creep strain |
 |---|---|---|---|---|
 | Lee, Pienkowski & Lee 2003 | extruded GUR 4151HP, unirradiated; 1 Hz, p_max 2–8 MPa, R = 0.1, bovine serum, 10–10⁴ min | 37 °C | dynamic | `ε = p_max·[2.076·10⁻³ + 3.897·10⁻⁴·(log₁₀ t_min − 4)]` |
+| Lee & Pienkowski 1998 (v0.4) | extruded GUR 4150HP, unirradiated; static 2–8 MPa, bovine serum, 10–10⁴ min | 36.5 °C | static | `ε = p·[3.491·10⁻³ + 7.966·10⁻⁴·(log₁₀ t_min − 4)]` |
 | Deng et al. 1998 (Eq. 2) | compression-moulded GUR 405; 1 MPa; master curve validated to 30 days | 37 °C | static | `ε = σ·[D(t) − D(10 s)]`, `D = 1.294·(log₁₀ t_s)^0.507` GPa⁻¹ |
 | Lewis & Carroll 2001 (control) | ram-extruded GUR 1050; 6.89 MPa; 1 h, ASTM D621 | 22 °C | static | `ε = σ·0.0644·[(log₁₀ t_s)^1.4119 − 1] / 100` |
 
 Checks against the papers (unit tests): Lee 8 MPa at 10⁴ min → 1.66·10⁻² (paper 1.637·10⁻²); Deng `D(1 month) = 3.320`,
 `D(1 y) = 3.594` GPa⁻¹ (Table III); Lewis 5 MPa, 10 years → 6.5 % (Table 3).
 
-Extrapolations are flagged in the results table: Lee beyond 10⁴ min (option: *saturates* — the authors observed a
-steady state after ≈ 4·10³ min — or *continues log-linearly*), Deng above 1 MPa (linear viscoelastic, it
-under-predicts at hip stresses), Lewis beyond 1 h (its `(log t)^1.41` grows fast; it is the upper end of the range).
+Extrapolations are flagged in the results table: the Lee laws beyond 10⁴ min (default since v0.4: *continues
+log-linearly* — Lee & Pienkowski 1998 report a steady creep **rate** after ≈ 4·10³ min and Estok 2005 measured further
+penetration between 2 and 4 M cycles; option: *saturates*), Deng above 1 MPa (linear viscoelastic, it under-predicts
+at hip stresses), Lewis beyond 1 h (its `(log t)^1.41` grows fast).
+
+**Monte Carlo laws (v0.4).** The validation (docs/VALIDATION.md) showed that the two Lee laws reproduce the material
+and liner data (Lee 2003 → static with k = 0.65 is within 10 % of Lee 1998), while Deng 1998 under-predicts by 30–50 %
+and Lewis 2001 over-predicts by ×1.6–3. By default the Monte Carlo samples only Lee 2003 and Lee 1998; Deng and Lewis
+are still computed and shown as references (form: second checkbox of each law).
 
 ### Loading modes
 
@@ -75,11 +82,15 @@ the law temperature `T₀` during `t·a_T`,
 a_T = exp[(Ea/R)·(1/T₀ − 1/T)]
 ```
 
-* `Ea = 53.7 kcal/mol` — Deng 1998, UHMWPE in compression (fitted 37–62 °C).
+* `Ea ≈ 15.5 kcal/mol` — Galetz & Glatzel 2010: the same deformation under sliding (Paul-type load) after 3 M cycles
+  at 23 °C, ≈ 0.9 M at 37 °C and ≈ 0.5 M at 45 °C (a_T ≈ 3.3 and 6).
 * `Ea ≈ 19.3 kcal/mol` — reproduces Burger 2006 (Table 3.2: creep after 2 h at 8 MPa 0.79 mm at room temperature vs
   1.08 mm at 40 °C → +31 % at 37 °C) when applied to the Lewis law.
-* The Monte Carlo samples Ea between both. Lee and Deng are already at 37 °C; only Lewis (22 °C) is shifted when the
-  in vivo temperature is 37 °C. The results table shows every law both at its own temperature and at 37 °C.
+* v0.4 default: U(15, 20), nominal 17 kcal/mol. Deng's 53.7 kcal/mol (fitted 37–62 °C, used until v0.3) gives
+  a_T(23→37 °C) = 61, twenty times the measured shift; Galetz's Eyring yield analysis (≈ 48 kcal/mol) describes the
+  yield stress, not the creep penetration.
+* Bergmann et al. 2001: after 1 h of walking the head reaches 40.0–43.1 °C (mean 41.3 °C, PE cups). With the
+  default Ea this raises the dynamic creep by ≈ 3–5 %; the in vivo temperature stays at 37 °C by default.
 
 ## 3. Polyethylene grades
 
@@ -88,9 +99,14 @@ The laws were measured on unirradiated UHMWPE; other grades multiply the creep s
 | Grade | Creep factor (nominal, range) | Source |
 |---|---|---|
 | Unirradiated | 1 | — |
-| Conventional, γ-sterilised 25–40 kGy | 0.82 (0.76–1.0) | Burger 2006, Table 3.3 (air 0.76, N₂ 0.82, annealed 0.95) |
-| Highly cross-linked | 0.90 (0.55–1.14) | Burger 2006 Table 3.4 (0.55–0.73), Lewis 2001 Table 3 (1.12–1.14), Glyn-Jones 2008 RSA (≈ 0.96) |
-| Vitamin-E HXLPE | as HXLPE | no specific creep law |
+| Conventional, γ-sterilised 25–40 kGy | 1.0 (0.85–1.2) | Takahashi 2016 (ArCom liners, 3000 N, 72 h): 0.89 (Lee 1998) – 1.33 (Lee 2003) at 0.05 mm clearance; Burger 2006 (0.82–0.95, 2 h RT) as low end |
+| HXLPE, remelted | 1.13 (0.96–1.36) | Estok 2005: +10–17 % vs conventional in identical liners; Lewis 2001 Table 3: ×1.12–1.14 |
+| HXLPE, annealed | 0.85 (0.73–1.0) | no liner data — Burger 2006 (125 kGy: 0.73), Takahashi 2014 (highest shape-recovery force) |
+| Vitamin-E HXLPE | 0.86 (0.73–1.03) | Takahashi 2016: E1/ArCom = 0.86 in 9 liner sizes |
+| HXLPE, unspecified | 1.0 (0.73–1.36) | envelope of the three |
+
+v0.3 used 0.82 for conventional and 0.90 (0.55–1.14) for every HXLPE; the validation showed the conventional factor
+was too low and that the grades differ in sign (remelted creeps more than conventional, vitamin-E less).
 
 ## 4. Recovery after explantation
 
@@ -109,8 +125,9 @@ h(t) = 0.73 + 0.27·log₁₀(t_min / 1000)      R(t) = R₁₀ₖ · h(t)
   (4 weeks → `h = 1.16`). Both are sampled.
 * Creep at 37 °C, recovery at room temperature (22 °C) is exactly the condition of these tests. Another storage
   temperature shifts the recovery time with the same Arrhenius factor.
-* `R₁₀ₖ`: conventional / unirradiated 0.51 (0.40–0.60; lower values allow for months-long in vivo creep being more
-  plastic). Cross-linked PE recovers more strain than conventional (strain-recovery tests; Takahashi et al. 2016
+* `R₁₀ₖ`: conventional / unirradiated 0.51 (0.30–0.60). Galetz & Glatzel 2010 found that the permanent strain grows
+  strongly with the loading time (500 s vs 3.5 days); in vivo loading lasts months, so the lower bound is 0.30
+  (0.40 until v0.3). Cross-linked PE recovers more strain than conventional (strain-recovery tests; Takahashi et al. 2016
   report "considerable" shape recovery of vitamin-E HXLPE liners, half of it within 5 min) but no percentage is
   published: 0.60 (0.45–0.75) is an **assumption**.
 * Other data: Metin & Cengil 2016 (tensile, room temperature, 1 h creep + 1 h recovery): 68–88 % of the total strain
@@ -120,8 +137,8 @@ h(t) = 0.73 + 0.27·log₁₀(t_min / 1000)      R(t) = R₁₀ₖ · h(t)
 
 ## 5. Monte Carlo and verdict
 
-Each sample draws one law (uniformly among the enabled ones) and: peak force (U 2.3–2.8 BW), cycles/year (log-uniform
-0.5–2 M), `k` (U 0.61–0.70), E (U 500–900 MPa), ν (U 0.40–0.46), wall thickness (N), clearance (U), Ea (U 19.3–53.7),
+Each sample draws one law (uniformly among the Monte Carlo laws, by default Lee 2003 and Lee 1998) and: peak force (U 2.3–2.8 BW), cycles/year (log-uniform
+0.5–2 M), `k` (U 0.61–0.70), E (U 500–900 MPa), ν (U 0.40–0.46), wall thickness (N), clearance (U), Ea (U 15–20),
 material factor (U), Lee extrapolation and recovery kinetics (50/50), `R₁₀ₖ` (U), and the measured `D` (N with the
 HipWear SD). Static and dynamic modes are computed for every sample.
 
@@ -165,6 +182,11 @@ in the first 6 months) includes some of these and is larger than material creep 
 
 * Lee K-Y, Pienkowski D, Lee S. Dynamic compressive creep of extruded ultra-high molecular weight polyethylene. KSME Int J. 2003;17(9):1332–1338.
 * Deng M, Latour RA, Ogale AA, Shalaby SW. Study of creep behavior of ultra-high-molecular-weight polyethylene systems. J Biomed Mater Res. 1998;40:214–223.
+* Lee K-Y, Pienkowski D. Compressive creep characteristics of extruded ultrahigh-molecular-weight polyethylene. J Biomed Mater Res. 1998;39:261–265.
+* Takahashi Y, et al. Size and thickness effect on creep behavior in conventional and vitamin E-diffused highly crosslinked polyethylene for total hip arthroplasty. J Mech Behav Biomed Mater. 2016;62:399–406.
+* Estok DM, et al. The measurement of creep in ultrahigh molecular weight polyethylene. J Arthroplasty. 2005;20:239–243.
+* Galetz MC, Glatzel U. An activated energy approach for accelerated testing of the deformation of UHMWPE in artificial joints. J Mech Behav Biomed Mater. 2010;3:331–338.
+* Bergmann G, et al. Frictional heating of total hip implants. Part 1: measurements in patients. J Biomech. 2001;34:421–428.
 * Lewis G, Carroll M. Effect of crosslinking UHMWPE on its tensile and compressive creep performance. Bio-Med Mater Eng. 2001;11:167–183.
 * Lee K-Y, Pienkowski D. Viscoelastic recovery of creep-deformed ultra-high molecular weight polyethylene (UHMWPE). ASTM STP 1307, 1998:30–36.
 * Burger NDL. Creep analysis for UHMWPE; Preliminary investigation of retrieved acetabular cups (Ch. 3–4). PhD thesis, University of Pretoria, 2006.

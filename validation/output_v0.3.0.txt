@@ -1,0 +1,68 @@
+
+=== V1 Lee & Pienkowski 1998 — static compression, unirradiated GUR 4150HP, 36.5 °C (strain %) ===
+P  t(min)  measured | Lee2003→static (k .65 [.70–.61]) | Deng 1998 | Lewis 2001 (Ea 19.3 / 53.7)
+2     10  0.28   | 0.28 [0.26–0.30] | 0.171 | 0.61 / 1.00
+2    100  0.42   | 0.40 [0.37–0.43] | 0.245 | 0.93 / 1.35
+2   1000  0.56   | 0.52 [0.48–0.55] | 0.309 | 1.28 / 1.74
+2  10000  0.70   | 0.64 [0.59–0.68] | 0.368 | 1.66 / 2.15
+4     10  0.58   | 0.56 [0.52–0.59] | 0.342 | 1.22 / 1.99
+4    100  0.85   | 0.80 [0.74–0.85] | 0.490 | 1.86 / 2.71
+4   1000  1.13   | 1.04 [0.96–1.11] | 0.619 | 2.56 / 3.47
+4  10000  1.40   | 1.28 [1.19–1.36] | 0.735 | 3.32 / 4.29
+8     10  0.95   | 1.12 [1.04–1.19] | 0.683 | 2.44 / 3.98
+8    100  1.57   | 1.60 [1.48–1.70] | 0.979 | 3.72 / 5.41
+8   1000  2.18   | 2.08 [1.93–2.21] | 1.238 | 5.13 / 6.95
+8  10000  2.79   | 2.56 [2.37–2.72] | 1.470 | 6.64 / 8.58
+
+=== V2 Takahashi 2016 — static 3000 N, 25 °C, 4320 min; creep strain rate (10⁻³ per decade of minutes) ===
+ArCom Ø28 t4.8: measured 5.51 | Lee 4.28  Deng 3.25  Lewis 8.63 | MC 4.02 (2.36–10.11) | penetration @72h MC 77 µm (43–221)
+ArCom Ø32 t4.8: measured 4.40 | Lee 3.54  Deng 2.73  Lewis 6.91 | MC 3.33 (1.95–8.14) | penetration @72h MC 64 µm (36–182)
+ArCom Ø28 t6.8: measured 4.60 | Lee 3.72  Deng 2.78  Lewis 7.74 | MC 3.42 (2.05–9.05) | penetration @72h MC 94 µm (54–274)
+ArCom Ø28 t8.9: measured 4.19 | Lee 3.30  Deng 2.43  Lewis 7.00 | MC 3.04 (1.81–8.21) | penetration @72h MC 108 µm (62–319)
+E1    Ø28 t4.8: measured 4.76 | Lee 4.64  Deng 3.53  Lewis 9.50 | MC 3.98 (2.05–11.08) | penetration @72h MC 76 µm (38–235)
+E1    Ø32 t4.8: measured 3.60 | Lee 3.82  Deng 2.95  Lewis 7.56 | MC 3.31 (1.70–8.79) | penetration @72h MC 64 µm (33–193)
+E1    Ø36 t4.8: measured 3.44 | Lee 3.23  Deng 2.53  Lewis 6.23 | MC 2.85 (1.44–7.20) | penetration @72h MC 56 µm (28–160)
+E1    Ø28 t6.8: measured 3.88 | Lee 4.04  Deng 3.02  Lewis 8.47 | MC 3.36 (1.76–9.90) | penetration @72h MC 93 µm (45–290)
+E1    Ø28 t8.9: measured 3.52 | Lee 3.58  Deng 2.64  Lewis 7.66 | MC 2.99 (1.55–9.00) | penetration @72h MC 107 µm (52–339)
+
+=== V3 Estok 2005 — cyclic 3330 N peak, 2 Hz, no motion, 37 °C; penetration (µm) measured after 48 h rest ===
+conventional Ø32 [time] measured 38/87/97 | rem. after 48 h: Lee 28/43/43 Deng 18/27/28 Lewis 83/134/141 | MC rem 32 (17–98) / 49 (25–158) / 49 (26–170) | MC Cmax@4M 88
+conventional Ø32 [cycles] measured 38/87/97 | rem. after 48 h: Lee 30/43/43 Deng 20/28/29 Lewis 89/141/148 | MC rem 35 (18–107) / 50 (26–169) / 51 (27–178) | MC Cmax@4M 91
+hxlpe        Ø32 [time] measured 38/97/107 | rem. after 48 h: Lee 26/40/40 Deng 17/26/27 Lewis 78/126/133 | MC rem 27 (12–86) / 41 (18–150) / 42 (19–160) | MC Cmax@4M 85
+hxlpe        Ø32 [cycles] measured 38/97/107 | rem. after 48 h: Lee 28/40/40 Deng 18/27/27 Lewis 84/133/141 | MC rem 29 (13–95) / 43 (19–158) / 43 (20–165) | MC Cmax@4M 88
+conventional Ø28 [time] measured 25/112/132 | rem. after 48 h: Lee 35/54/54 Deng 23/34/36 Lewis 108/175/184 | MC rem 40 (21–125) / 61 (33–205) / 63 (34–219) | MC Cmax@4M 110
+conventional Ø28 [cycles] measured 25/112/132 | rem. after 48 h: Lee 38/55/55 Deng 24/36/37 Lewis 116/184/194 | MC rem 43 (23–134) / 64 (34–221) / 64 (35–231) | MC Cmax@4M 115
+hxlpe        Ø28 [time] measured 27/131/155 | rem. after 48 h: Lee 33/51/51 Deng 21/32/33 Lewis 101/165/174 | MC rem 33 (15–112) / 53 (23–193) / 53 (24–202) | MC Cmax@4M 107
+hxlpe        Ø28 [cycles] measured 27/131/155 | rem. after 48 h: Lee 36/51/51 Deng 23/33/35 Lewis 109/174/183 | MC rem 36 (17–122) / 53 (24–202) / 54 (25–213) | MC Cmax@4M 110
+
+=== V4 Bevill 2005 — trends of creep penetration (static 2000 min, 1500 N, 37 °C, virgin, E 1400, ν 0.3) ===
+head 22 (t 8)      Lee 107  Deng 70  Lewis 302 | MC 105 (70–291) µm
+head 28 (t 8)      Lee 81  Deng 54  Lewis 217 | MC 80 (54–209) µm
+head 32 (t 8)      Lee 69  Deng 47  Lewis 183 | MC 68 (46–176) µm
+head 36 (t 8)      Lee 61  Deng 41  Lewis 156 | MC 60 (41–151) µm
+thick 4 (Ø32)      Lee 50  Deng 34  Lewis 122 | MC 49 (34–119) µm
+thick 8 (Ø32)      Lee 69  Deng 47  Lewis 183 | MC 68 (46–176) µm
+thick 12 (Ø32)     Lee 82  Deng 54  Lewis 222 | MC 81 (54–213) µm
+thick 16 (Ø32)     Lee 91  Deng 60  Lewis 253 | MC 89 (59–247) µm
+diam. cl 0.01 (t12) Lee 56  Deng 34  Lewis 185 | MC 55 (34–179) µm
+diam. cl 0.1 (t12) Lee 70  Deng 45  Lewis 204 | MC 68 (45–200) µm
+diam. cl 0.2 (t12) Lee 82  Deng 54  Lewis 222 | MC 81 (54–213) µm
+diam. cl 0.5 (t12) Lee 109  Deng 74  Lewis 269 | MC 107 (73–261) µm
+
+=== V5 Rochcongar 2021 — in vivo RSA, penetration 7 d → 1 y (µm); creep ≈ penetration − first-year wear ===
+virgin       dynamic Lee 18 Deng 11 Lewis 63 | MC 20 (10–72)
+virgin       static  Lee 3 Deng 13 Lewis 105 | MC 17 (3–117)
+conventional dynamic Lee 15 Deng 9 Lewis 52 | MC 17 (9–67)
+conventional static  Lee 2 Deng 11 Lewis 84 | MC 16 (1–105)
+vite-hxlpe   dynamic Lee 16 Deng 10 Lewis 57 | MC 17 (8–68)
+vite-hxlpe   static  Lee 2 Deng 12 Lewis 96 | MC 17 (1–114)
+measured: penetration 1 y = 160 (VE-HXLPE) / 200 (UHMWPE); wear 1–5 y = 20 / 60 µm/y → creep+bedding ≈ 140 / 140 µm
+
+=== V6 Temperature shift ===
+Ea 19.3 kcal/mol: aT(37 vs 23) = 4.4  aT(45 vs 23) = 9.7  aT(37 vs 22) = 4.9
+Ea 36.5 kcal/mol: aT(37 vs 23) = 16.4  aT(45 vs 23) = 72.9  aT(37 vs 22) = 20.3
+Ea 53.7 kcal/mol: aT(37 vs 23) = 61.5  aT(45 vs 23) = 549.9  aT(37 vs 22) = 83.8
+Galetz 2010 tribological test: same deformation 3 M cycles @23 °C ≈ 0.9 M @37 °C ≈ 0.5 M @45 °C → aT ≈ 3.3 and 6
+  → implied Ea ≈ 15.7 (37 °C) and 15.2 (45 °C) kcal/mol; Eyring yield Ea ≈ 200 kJ/mol = 47.8 kcal/mol
+Dynamic creep, 6 months: 37 °C 62 (33–184) µm vs 41.3 °C 65 (35–196) µm
+  per law at 37 / 41.3 °C: lee2003 55/56  deng1998 35/37  lewis2001 159/174

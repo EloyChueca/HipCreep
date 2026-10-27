@@ -4,7 +4,8 @@
 
 import type { LawId } from './laws.ts';
 import type { MaterialId, Range } from './materials.ts';
-import { EA_BURGER_KCAL, EA_DENG_KCAL } from './temperature.ts';
+import { EA_BURGER_KCAL } from './temperature.ts';
+import { LAW_IDS, MC_LAW_IDS } from './laws.ts';
 
 export type Either<T extends string> = T | 'both';
 
@@ -50,7 +51,10 @@ export interface CaseInput {
   /** Lee 2003: dynamic creep at p_max ≈ static creep at k·p_max */
   dynStaticRatio: Range;
   // Material model
+  /** Laws shown in the tables and charts */
   laws: LawId[];
+  /** Laws sampled by the Monte Carlo (subset of `laws`) */
+  mcLaws: LawId[];
   leeExtrapolation: Either<'cap' | 'log'>;
   recoveryKinetics: Either<'plateau' | 'log'>;
   eaKcal: Range;
@@ -90,10 +94,13 @@ export function defaultCase(): CaseInput {
     gaitFrequencyHz: 1,
     // Lee 2003: 64 %, 70 %, 61 % at 2, 4, 8 MPa
     dynStaticRatio: { nominal: 0.65, lo: 0.61, hi: 0.70 },
-    laws: ['lee2003', 'deng1998', 'lewis2001'],
-    leeExtrapolation: 'both',
+    laws: [...LAW_IDS],
+    mcLaws: [...MC_LAW_IDS],
+    // Lee & Pienkowski 1998: steady creep rate after ≈4·10³ min; Estok 2005: penetration still grows
+    leeExtrapolation: 'log',
     recoveryKinetics: 'both',
-    eaKcal: { nominal: EA_DENG_KCAL, lo: EA_BURGER_KCAL, hi: EA_DENG_KCAL },
+    // Galetz & Glatzel 2010 (≈ 15.5) – Burger 2006 (19.3), see temperature.ts
+    eaKcal: { nominal: 17, lo: 15, hi: EA_BURGER_KCAL + 0.7 },
     E: { nominal: 650, lo: 500, hi: 900 },
     nu: { nominal: 0.43, lo: 0.40, hi: 0.46 },
     kappa: 1,

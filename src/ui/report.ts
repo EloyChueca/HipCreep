@@ -28,7 +28,7 @@ export interface ReportData {
   elevation: ElevationResult | null;
 }
 
-const LAW_COLOR: Record<LawId, string> = { lee2003: '--series-1', deng1998: '--series-2', lewis2001: '--series-3' };
+const LAW_COLOR: Record<LawId, string> = { lee2003: '--series-1', lee1998: '--series-4', deng1998: '--series-2', lewis2001: '--series-3' };
 export const lawColor = (id: LawId) => cssVar(LAW_COLOR[id]);
 const MODE_LABEL: Record<Loading, string> = { static: 'Static', dynamic: 'Dynamic' };
 
@@ -59,7 +59,7 @@ export function renderEmpty(root: HTMLElement): void {
     <div class="report-empty">
       <h2>HipCreep</h2>
       <p>Estimates the <b>creep</b> (cold flow) of a UHMWPE acetabular liner from the patient and implant data, with the
-      compressive creep laws of Lee et al. (2003), Deng et al. (1998) and Lewis &amp; Carroll (2001), in a <b>static</b>
+      compressive creep laws of Lee et al. (2003) and Lee &amp; Pienkowski (1998) — with Deng et al. (1998) and Lewis &amp; Carroll (2001) as references — in a <b>static</b>
       (load held for the whole implantation time) and a <b>dynamic</b> (1 Hz gait cycles) mode. It then applies the
       <b>recovery</b> measured by Lee &amp; Pienkowski (1998) for the time the liner spent unloaded before scanning, and splits
       the penetration measured by <b>HipWear</b> into remaining creep and wear, with Monte Carlo ranges.</p>
@@ -434,15 +434,23 @@ function renderMethods(root: HTMLElement, d: ReportData): void {
       <li><b>Contact</b>: elastic-foundation model of the head in a spherical liner with radial clearance; p = k<sub>f</sub>·(e·cosψ − c − w), k<sub>f</sub> = (1−ν)E/[(1+ν)(1−2ν)h]. Without clearance p<sub>0</sub> = 3F/(2πR²). Cells beyond the rim carry no load.</li>
       <li><b>Through the wall</b>: σ(r) = p·(R/r)²; creep penetration w = κ·∫ε dr, with a strain-hardening integration so the contact conforms as the liner creeps.</li>
       <li><b>Laws</b> (creep part only, linear in stress): ${c.laws.map((id) => `${LAWS[id].shortRef}: <span class="mono">${escapeHtml(LAWS[id].formula)}</span>`).join('; ')}.</li>
-      <li><b>Static ↔ dynamic</b>: Lee 2003 — a 1 Hz cycle with peak p creeps like a static load k·p (k = 0.61–0.70).</li>
-      <li><b>Temperature</b>: time–temperature superposition with an Arrhenius shift (Deng 1998: Ea = 53.7 kcal/mol; Burger 2006 data imply ≈ 19 kcal/mol between 22 and 37 °C).</li>
-      <li><b>Recovery</b>: Lee &amp; Pienkowski 1998 — recovered strain linear in log(time), 73 % of it in the first 1000 min, ≈ 51 % of the creep recovered after 10⁴ min at room temperature, independent of load. Cross-linked PE recovers more (no published percentage; assumed ${pct(MATERIALS.hxlpe.recovery10k.lo)}–${pct(MATERIALS.hxlpe.recovery10k.hi)}).</li>
+      <li><b>Monte Carlo laws</b>: ${c.mcLaws.map((id) => LAWS[id].shortRef).join(', ')} (one per sample). Deng 1998 under-predicts the validation data by 30–50 % and Lewis 2001 over-predicts by ×1.6–3, so by default they are shown only as references (docs/VALIDATION.md).</li>
+      <li><b>Static ↔ dynamic</b>: Lee 2003 — a 1 Hz cycle with peak p creeps like a static load k·p (k = 0.61–0.70); Lee 1998 (static) and Lee 2003 (dynamic) agree through k ≈ 0.6.</li>
+      <li><b>Beyond 10⁴ min</b> the Lee laws continue log-linearly (steady creep rate, Lee &amp; Pienkowski 1998; growth between 2 and 4 M cycles, Estok 2005).</li>
+      <li><b>Temperature</b>: time–temperature superposition with an Arrhenius shift, Ea = ${num(c.eaKcal.lo)}–${num(c.eaKcal.hi)} kcal/mol (Galetz &amp; Glatzel 2010: ≈ 15.5 from the deformation under sliding at 23–45 °C; Burger 2006: 19.3). Deng's 53.7 kcal/mol overestimates the shift ×20.</li>
+      <li><b>Recovery</b>: Lee &amp; Pienkowski 1998 — recovered strain linear in log(time), 73 % of it in the first 1000 min, ≈ 51 % of the creep recovered after 10⁴ min at room temperature, independent of load. Galetz 2010: the permanent part grows with the loading time, so the lower bound is 30 %. Cross-linked PE recovers more (no published percentage; assumed ${pct(MATERIALS.hxlpe.recovery10k.lo)}–${pct(MATERIALS.hxlpe.recovery10k.hi)}).</li>
       <li><b>Material</b>: ${escapeHtml(mat.label)} — ${escapeHtml(mat.note)}</li>
       <li><b>Not modelled</b>: backside deformation and liner seating in the shell, frictional heating, oxidation, edge loading by impingement, wear–creep interaction during the run-in.</li>
     </ul>
     <ul class="refs">
       ${c.laws.map((id) => `<li>${escapeHtml(LAWS[id].reference)}</li>`).join('')}
       <li>Lee K-Y, Pienkowski D. Viscoelastic recovery of creep-deformed UHMWPE. ASTM STP 1307, 1998:30–36.</li>
+      <li>Takahashi Y, Tateiwa T, Shishido T, et al. Size and thickness effect on creep behavior in conventional and vitamin E-diffused highly crosslinked polyethylene for total hip arthroplasty. J Mech Behav Biomed Mater. 2016;62:399–406.</li>
+      <li>Estok DM, Bragdon CR, Plank GR, et al. The measurement of creep in ultrahigh molecular weight polyethylene: a comparison of conventional versus highly cross-linked polyethylene. J Arthroplasty. 2005;20:239–243.</li>
+      <li>Galetz MC, Glatzel U. An activated energy approach for accelerated testing of the deformation of UHMWPE in artificial joints. J Mech Behav Biomed Mater. 2010;3:331–338.</li>
+      <li>Bevill SL, et al. Finite element simulation of early creep and wear in total hip arthroplasty. J Biomech. 2005;38:2365–2374.</li>
+      <li>Bergmann G, et al. Frictional heating of total hip implants. Part 1: measurements in patients. J Biomech. 2001;34:421–428.</li>
+      <li>Rochcongar G, et al. Reduced wear in vitamin E-infused highly cross-linked polyethylene cups: 5-year results of a randomized controlled trial. Acta Orthop. 2021;92:151–155.</li>
       <li>Burger NDL. Creep analysis for UHMWPE (Ch. 3). PhD thesis, University of Pretoria, 2006.</li>
       <li>Metin F, Cengil M. Short-term creep and recovery behavior of medical grade UHMWPE. J Achiev Mater Manuf Eng. 2016;78(2):65–70.</li>
       <li>Zeman J, et al. UHMWPE acetabular cup creep deformation during the run-in phase of THA's life cycle. J Mech Behav Biomed Mater. 2018;87:30–39.</li>

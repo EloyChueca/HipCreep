@@ -4,14 +4,15 @@
 import { defaultCase, type CaseInput } from '../src/model/case.ts';
 import { sampleParams, nominalParams, type ScenarioParams } from '../src/model/analysis.ts';
 import { simulate, RES_MC, RES_FINE } from '../src/model/creep.ts';
-import { LAWS, type LawId, type Loading } from '../src/model/laws.ts';
+import { LAWS, LAW_IDS, type LawId, type Loading } from '../src/model/laws.ts';
 import { shiftFactor } from '../src/model/temperature.ts';
 import { recoveredFraction } from '../src/model/recovery.ts';
 import { mulberry32, summarize } from '../src/model/stats.ts';
 import fs from 'node:fs';
 
 const G = 9.80665;
-const LAW_IDS: LawId[] = ['lee2003', 'deng1998', 'lewis2001'];
+const SHORT: Record<LawId, string> = { lee2003: 'Lee03', lee1998: 'Lee98', deng1998: 'Deng', lewis2001: 'Lewis' };
+const L = (o: Record<string, number>, d = 0) => LAW_IDS.map((l) => `${SHORT[l]} ${f(o[l], d)}`).join('  ');
 const out: any = {};
 const f = (x: number, d = 0) => (Number.isFinite(x) ? x.toFixed(d) : '—');
 
@@ -66,7 +67,7 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
   const samples: number[][] = Array.from({ length: nOut }, () => []);
   const byLaw: Record<string, number[][]> = Object.fromEntries(LAW_IDS.map((l) => [l, Array.from({ length: nOut }, () => [] as number[])]));
   for (let i = 0; i < n; i++) {
-    const law = LAW_IDS[Math.min(2, Math.floor(rng() * 3))];
+    const law = c.mcLaws[Math.min(c.mcLaws.length - 1, Math.floor(rng() * c.mcLaws.length))];
     const p = sampleParams(c, rng);
     const r = sim(c, p, law, mode, timeEndS);
     let w = times.map((t) => at(r.history!, t));
@@ -88,15 +89,16 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
       const t = tMin * 60;
       const lee = LAWS.lee2003.strain(P / k, t, { leeExtrapolation: 'cap' });            // static ≈ dynamic at P/k
       const leeK = [0.70, 0.61].map((kk) => LAWS.lee2003.strain(P / kk, t, { leeExtrapolation: 'cap' }));
+      const lee98 = LAWS.lee1998.strain(P, t, { leeExtrapolation: 'cap' });
       const deng = LAWS.deng1998.strain(P, t * shiftFactor(T, 37, 53.7), { leeExtrapolation: 'cap' });
       const lewis = [19.3, 53.7].map((ea) => LAWS.lewis2001.strain(P, t * shiftFactor(T, 22, ea), { leeExtrapolation: 'cap' }));
-      rows.push({ P, tMin, meas, lee, leeK, deng, lewis });
+      rows.push({ P, tMin, meas, lee, leeK, lee98, deng, lewis });
     }
   }
   out.lee1998 = rows;
   console.log('\n=== V1 Lee & Pienkowski 1998 — static compression, unirradiated GUR 4150HP, 36.5 °C (strain %) ===');
-  console.log('P  t(min)  measured | Lee2003→static (k .65 [.70–.61]) | Deng 1998 | Lewis 2001 (Ea 19.3 / 53.7)');
-  for (const r of rows) console.log(`${r.P}  ${String(r.tMin).padStart(5)}  ${(r.meas * 100).toFixed(2)}   | ${(r.lee * 100).toFixed(2)} [${(r.leeK[0] * 100).toFixed(2)}–${(r.leeK[1] * 100).toFixed(2)}] | ${(r.deng * 100).toFixed(3)} | ${(r.lewis[0] * 100).toFixed(2)} / ${(r.lewis[1] * 100).toFixed(2)}`);
+  console.log('P  t(min)  measured | Lee2003→static (k .65 [.70–.61]) | Lee 1998 (calibration) | Deng 1998 | Lewis 2001 (Ea 19.3 / 53.7)');
+  for (const r of rows) console.log(`${r.P}  ${String(r.tMin).padStart(5)}  ${(r.meas * 100).toFixed(2)}   | ${(r.lee * 100).toFixed(2)} [${(r.leeK[0] * 100).toFixed(2)}–${(r.leeK[1] * 100).toFixed(2)}] | ${(r.lee98 * 100).toFixed(2)} | ${(r.deng * 100).toFixed(3)} | ${(r.lewis[0] * 100).toFixed(2)} / ${(r.lewis[1] * 100).toFixed(2)}`);
 }
 
 // ============================================================ V2 — Takahashi 2016 (liners, static 3000 N, 25 °C, 72 h)
@@ -120,7 +122,7 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
     const st = summarize(Float64Array.from(mcRates));
     const abs = r.mc[1];
     out.takahashi.push({ ...cs, det, mc: st, absUm: abs });
-    console.log(`${cs.name.padEnd(5)} Ø${cs.d} t${cs.t}: measured ${cs.meas.toFixed(2)} | Lee ${det.lee2003.toFixed(2)}  Deng ${det.deng1998.toFixed(2)}  Lewis ${det.lewis2001.toFixed(2)} | MC ${st.p50.toFixed(2)} (${st.p5.toFixed(2)}–${st.p95.toFixed(2)}) | penetration @72h MC ${f(abs.p50)} µm (${f(abs.p5)}–${f(abs.p95)})`);
+    console.log(`${cs.name.padEnd(5)} Ø${cs.d} t${cs.t}: measured ${cs.meas.toFixed(2)} | ${L(det, 2)} | MC ${st.p50.toFixed(2)} (${st.p5.toFixed(2)}–${st.p95.toFixed(2)}) | penetration @72h MC ${f(abs.p50)} µm (${f(abs.p5)}–${f(abs.p95)})`);
   }
 }
 
@@ -129,9 +131,9 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
   console.log('\n=== V3 Estok 2005 — cyclic 3330 N peak, 2 Hz, no motion, 37 °C; penetration (µm) measured after 48 h rest ===');
   const cases = [
     { mat: 'conventional', d: 32, t: 9, meas: { 1e4: 38, 2e6: 87, 4e6: 97 } },
-    { mat: 'hxlpe', d: 32, t: 9, meas: { 1e4: 38, 2e6: 97, 4e6: 107 } },
+    { mat: 'hxlpe-remelted', d: 32, t: 9, meas: { 1e4: 38, 2e6: 97, 4e6: 107 } },
     { mat: 'conventional', d: 28, t: 10.25, meas: { 1e4: 25, 2e6: 112, 4e6: 132 } },
-    { mat: 'hxlpe', d: 28, t: 10.25, meas: { 1e4: 27, 2e6: 131, 4e6: 155 } },
+    { mat: 'hxlpe-remelted', d: 28, t: 10.25, meas: { 1e4: 27, 2e6: 131, 4e6: 155 } },
   ] as const;
   const Ns = [1e4, 2e6, 4e6];
   out.estok = [];
@@ -148,8 +150,8 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
       const r = run(s, 'dynamic', toT(4e6), Ns.map(toT), 300, post);
       const row: any = { ...cs, timeRule, det: r.det, mc: r.mc };
       out.estok.push(row);
-      const D = (l: string) => Ns.map((_, k) => `${f(r.det[l][k + 3])}`).join('/');
-      console.log(`${cs.mat.padEnd(12)} Ø${cs.d} [${timeRule}] measured ${Ns.map((N) => (cs.meas as any)[N]).join('/')} | rem. after 48 h: Lee ${D('lee2003')} Deng ${D('deng1998')} Lewis ${D('lewis2001')} | MC rem ${Ns.map((_, k) => `${f(r.mc[k + 3].p50)} (${f(r.mc[k + 3].p5)}–${f(r.mc[k + 3].p95)})`).join(' / ')} | MC Cmax@4M ${f(r.mc[2].p50)}`);
+      const D = (l: LawId) => Ns.map((_, k) => `${f(r.det[l][k + 3])}`).join('/');
+      console.log(`${cs.mat.padEnd(12)} Ø${cs.d} [${timeRule}] measured ${Ns.map((N) => (cs.meas as any)[N]).join('/')} | rem. after 48 h: ${LAW_IDS.map((l) => `${SHORT[l]} ${D(l)}`).join('  ')} | MC rem ${Ns.map((_, k) => `${f(r.mc[k + 3].p50)} (${f(r.mc[k + 3].p5)}–${f(r.mc[k + 3].p95)})`).join(' / ')} | MC Cmax@4M ${f(r.mc[2].p50)}`);
     }
   }
 }
@@ -162,7 +164,7 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
   const T = 2000 * 60;
   const one = (s: Setup) => { const r = run(s, 'static', T, [T], 150); return { det: Object.fromEntries(LAW_IDS.map((l) => [l, r.det[l][0]])), mc: r.mc[0] }; };
   out.bevill = { head: [], thick: [], clear: [] } as any;
-  const line = (lab: string, r: any) => console.log(`${lab.padEnd(18)} Lee ${f(r.det.lee2003)}  Deng ${f(r.det.deng1998)}  Lewis ${f(r.det.lewis2001)} | MC ${f(r.mc.p50)} (${f(r.mc.p5)}–${f(r.mc.p95)}) µm`);
+  const line = (lab: string, r: any) => console.log(`${lab.padEnd(18)} ${L(r.det)} | MC ${f(r.mc.p50)} (${f(r.mc.p5)}–${f(r.mc.p95)}) µm`);
   for (const d of [22, 28, 32, 36]) { const r = one({ ...base, headD: d }); out.bevill.head.push({ d, ...r }); line(`head ${d} (t 8)`, r); }
   for (const t of [4, 8, 12, 16]) { const r = one({ ...base, t }); out.bevill.thick.push({ t, ...r }); line(`thick ${t} (Ø32)`, r); }
   for (const cd of [0.01, 0.1, 0.2, 0.5]) { const cl = cd / 2; const r = one({ ...base, t: 12, clearance: { nominal: cl, lo: cl, hi: cl } }); out.bevill.clear.push({ cd, ...r }); line(`diam. cl ${cd} (t12)`, r); }
@@ -183,7 +185,7 @@ function run(s: Setup, mode: Loading, timeEndS: number, times: number[], n = 400
       const st = summarize(Float64Array.from(diff));
       const det = Object.fromEntries(LAW_IDS.map((l) => [l, r.det[l][1] - r.det[l][0]]));
       out.rochcongar.push({ mat, mode, det, mc: st });
-      console.log(`${mat.padEnd(12)} ${mode.padEnd(7)} Lee ${f(det.lee2003)} Deng ${f(det.deng1998)} Lewis ${f(det.lewis2001)} | MC ${f(st.p50)} (${f(st.p5)}–${f(st.p95)})`);
+      console.log(`${mat.padEnd(12)} ${mode.padEnd(7)} ${L(det)} | MC ${f(st.p50)} (${f(st.p5)}–${f(st.p95)})`);
     }
   }
   console.log('measured: penetration 1 y = 160 (VE-HXLPE) / 200 (UHMWPE); wear 1–5 y = 20 / 60 µm/y → creep+bedding ≈ 140 / 140 µm');

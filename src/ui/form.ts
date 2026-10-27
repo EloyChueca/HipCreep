@@ -81,11 +81,11 @@ const SECTIONS: Section[] = [
   },
   {
     title: 'Creep model', fields: [
-      { kind: 'laws', id: 'laws', label: 'Creep laws (Monte Carlo picks one per sample)' },
-      { kind: 'select', id: 'leeExtrapolation', label: 'Lee 2003 beyond 10⁴ min', options: [['both', 'Both (sampled)'], ['cap', 'Saturates'], ['log', 'Log-linear continues']] },
+      { kind: 'laws', id: 'laws', label: 'Creep laws — shown / used by the Monte Carlo (one law per sample)' },
+      { kind: 'select', id: 'leeExtrapolation', label: 'Lee laws beyond 10⁴ min', options: [['log', 'Log-linear continues'], ['both', 'Both (sampled)'], ['cap', 'Saturates']] },
       { kind: 'select', id: 'recoveryKinetics', label: 'Recovery beyond 10⁴ min', options: [['both', 'Both (sampled)'], ['plateau', 'Plateau (51 %)'], ['log', 'Log-linear continues']] },
       { kind: 'range', id: 'eaKcal', label: 'Activation energy Ea (TTS)', unit: 'kcal/mol', step: 0.5,
-        help: '53.7 = Deng 1998 (compression); 19.3 reproduces Burger 2006 (+31 % at 37 vs 22 °C).' },
+        help: '≈ 15.5 Galetz & Glatzel 2010 (deformation under sliding, 23–45 °C); 19.3 reproduces Burger 2006. Deng 1998 (53.7) overestimates the shift.' },
       { kind: 'range', id: 'E', label: 'Elastic modulus E', unit: 'MPa', step: 10 },
       { kind: 'range', id: 'nu', label: 'Poisson ratio ν', unit: '', step: 0.01 },
       { kind: 'check', id: 'creepFactorOn', label: 'Override material creep factor' },
@@ -133,7 +133,9 @@ function fieldHtml(f: Field): string {
       return `<label class="check"><input type="checkbox" id="${fid(f.id)}" /> ${f.label}</label>${help ? `<div class="row">${help}</div>` : ''}`;
     case 'laws':
       return `<div class="row range"><label>${f.label}</label>${LAW_IDS.map((id) => `
-        <label class="check" title="${LAWS[id].reference}"><input type="checkbox" id="${fid('law-' + id)}" /> ${LAWS[id].label}</label>`).join('')}</div>`;
+        <div class="law-row" title="${LAWS[id].reference}"><input type="checkbox" id="${fid('law-' + id)}" aria-label="Show ${LAWS[id].shortRef}" />
+        <input type="checkbox" id="${fid('mclaw-' + id)}" aria-label="Use ${LAWS[id].shortRef} in the Monte Carlo" /> <span>${LAWS[id].label}</span></div>`).join('')}
+        <div class="help">First box: shown in the tables. Second box: sampled by the Monte Carlo. By default only the two Lee laws are sampled — they reproduce the validation data; Deng under-predicts and Lewis over-predicts (docs/VALIDATION.md).</div></div>`;
   }
 }
 
@@ -182,7 +184,7 @@ export function writeForm(c: CaseInput, ui: UiSettings): void {
   setRange('cyclesPerYear', c.cyclesPerYear);
   setNum('gaitFrequencyHz', c.gaitFrequencyHz);
   setRange('dynStaticRatio', c.dynStaticRatio);
-  for (const id of LAW_IDS) setChk('law-' + id, c.laws.includes(id));
+  for (const id of LAW_IDS) { setChk('law-' + id, c.laws.includes(id)); setChk('mclaw-' + id, c.mcLaws.includes(id)); }
   setSel('leeExtrapolation', c.leeExtrapolation);
   setSel('recoveryKinetics', c.recoveryKinetics);
   setRange('eaKcal', c.eaKcal);
@@ -253,8 +255,11 @@ export function readForm(base: CaseInput, uiBase: UiSettings): { c: CaseInput; u
   c.cyclesPerYear = getRange('cyclesPerYear', base.cyclesPerYear);
   c.gaitFrequencyHz = Math.max(0.05, getNum('gaitFrequencyHz', base.gaitFrequencyHz));
   c.dynStaticRatio = getRange('dynStaticRatio', base.dynStaticRatio);
-  const laws = LAW_IDS.filter((id) => getChk('law-' + id));
-  c.laws = (laws.length ? laws : ['lee2003']) as LawId[];
+  const mcLaws = LAW_IDS.filter((id) => getChk('mclaw-' + id));
+  c.mcLaws = (mcLaws.length ? mcLaws : ['lee2003']) as LawId[];
+  // a law sampled by the Monte Carlo is always shown
+  const laws = LAW_IDS.filter((id) => getChk('law-' + id) || c.mcLaws.includes(id));
+  c.laws = laws as LawId[];
   c.leeExtrapolation = getSel('leeExtrapolation', base.leeExtrapolation) as CaseInput['leeExtrapolation'];
   c.recoveryKinetics = getSel('recoveryKinetics', base.recoveryKinetics) as CaseInput['recoveryKinetics'];
   c.eaKcal = getRange('eaKcal', base.eaKcal);

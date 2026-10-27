@@ -221,7 +221,8 @@ export async function runMonteCarlo(
   const t0 = performance.now();
   const n = Math.max(10, Math.round(c.samples));
   const rng = mulberry32(c.seed);
-  const laws = c.laws.length ? c.laws : (['lee2003'] as LawId[]);
+  const mcSet = (c.mcLaws ?? []).filter((id) => LAWS[id]);
+  const laws = mcSet.length ? mcSet : c.laws.length ? c.laws : (['lee2003'] as LawId[]);
   const lawIndex = new Uint8Array(n);
   const Rarr = new Float64Array(n);
   const meas = c.measured;

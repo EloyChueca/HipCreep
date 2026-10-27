@@ -7,19 +7,20 @@
 // The instantaneous elastic strain is excluded: a retrieved liner is measured
 // unloaded, so only creep can remain in it.
 //
-// All three laws are linear in σ (creep compliance × σ), as reported by their
+// All the laws are linear in σ (creep compliance × σ), as reported by their
 // authors in the stress range they tested. Each one also has a closed-form
 // inverse t(σ, ε), which the strain-hardening time integration needs.
 // ============================================================
 
 import { SECONDS_PER_MINUTE } from './constants.ts';
 
-export type LawId = 'lee2003' | 'deng1998' | 'lewis2001';
+export type LawId = 'lee2003' | 'lee1998' | 'deng1998' | 'lewis2001';
 export type Loading = 'static' | 'dynamic';
 
 export interface LawOptions {
-  /** Lee 2003 was measured up to 10⁴ min. 'cap' keeps the 10⁴-min value afterwards
-   *  (the authors saw a steady state after ≈4·10³ min); 'log' continues the log-linear fit. */
+  /** Lee 2003 and Lee 1998 were measured up to 10⁴ min. 'cap' keeps the 10⁴-min value afterwards;
+   *  'log' continues the log-linear fit (Lee & Pienkowski 1998: a steady creep RATE after ≈4·10³ min;
+   *  Estok 2005: penetration still grows between 2 and 4 M cycles). */
   leeExtrapolation: 'cap' | 'log';
 }
 
@@ -88,6 +89,48 @@ const lee2003: CreepLaw = {
     const tMin = Math.pow(10, L);
     if (opt.leeExtrapolation === 'cap' && tMin >= LEE_CAP_MIN) return Infinity;
     return Math.max(tMin, LEE_T0_MIN) * SECONDS_PER_MINUTE;
+  },
+};
+
+// ------------------------------------------------------------
+// Lee & Pienkowski (1998), J Biomed Mater Res 39:261–265
+// Static compressive creep, extruded unirradiated GUR 4150HP, bovine serum 36.5 °C,
+// constant 2/4/8 MPa, 10 → 10⁴ min, thickness measured after brief (≈5 min) unloadings.
+// Strain linear in log(time) (r² = 0.97) and in pressure (Fig. 4):
+//   ε(10⁴ min) = 3.491·10⁻³ /MPa · p   (r² = 0.99)
+//   slope      = 7.966·10⁻⁴ /log10(min)/MPa (r² = 0.99)
+// Same group and material as Lee 2003: the two laws are consistent through k ≈ 0.6
+// (2.076/3.491 = 0.59). Used by Bevill et al. 2005 for their FE creep model.
+// ------------------------------------------------------------
+const LEE98_A = 3.491e-3;
+const LEE98_B = 7.966e-4;
+const LEE98_T0_MIN = Math.pow(10, 4 - LEE98_A / LEE98_B);
+
+const lee1998: CreepLaw = {
+  id: 'lee1998',
+  label: 'Lee & Pienkowski 1998 — static, 37 °C',
+  shortRef: 'Lee 1998',
+  reference: 'Lee K-Y, Pienkowski D. Compressive creep characteristics of extruded ultrahigh-molecular-weight polyethylene. J Biomed Mater Res. 1998;39:261–265.',
+  nativeTempC: 36.5,
+  nativeLoading: 'static',
+  material: 'Extruded GUR 4150HP, unirradiated',
+  testConditions: 'Static compression 2–8 MPa, bovine serum 36.5 °C, 10–10⁴ min',
+  testedTimeRangeS: [10 * SECONDS_PER_MINUTE, LEE_CAP_MIN * SECONDS_PER_MINUTE],
+  testedStressRangeMPa: [2, 8],
+  formula: 'ε = p · [3.491·10⁻³ + 7.966·10⁻⁴ · (log₁₀ t_min − 4)]',
+  strain(sigma, t, opt) {
+    if (!(sigma > 0) || !(t > 0)) return 0;
+    let tMin = t / SECONDS_PER_MINUTE;
+    if (opt.leeExtrapolation === 'cap' && tMin > LEE_CAP_MIN) tMin = LEE_CAP_MIN;
+    const x = LEE98_A + LEE98_B * (Math.log10(tMin) - 4);
+    return x > 0 ? sigma * x : 0;
+  },
+  timeFor(sigma, eps, opt) {
+    if (!(sigma > 0)) return Infinity;
+    if (!(eps > 0)) return 0;
+    const tMin = Math.pow(10, 4 + (eps / sigma - LEE98_A) / LEE98_B);
+    if (opt.leeExtrapolation === 'cap' && tMin >= LEE_CAP_MIN) return Infinity;
+    return Math.max(tMin, LEE98_T0_MIN) * SECONDS_PER_MINUTE;
   },
 };
 
@@ -175,5 +218,9 @@ export const RAW = {
   lewisCompliance: (tS: number) => LEWIS.delta + LEWIS.lambda * Math.pow(Math.log10(tS), LEWIS.eta),
 };
 
-export const LAWS: Record<LawId, CreepLaw> = { lee2003, deng1998, lewis2001 };
-export const LAW_IDS: LawId[] = ['lee2003', 'deng1998', 'lewis2001'];
+export const LAWS: Record<LawId, CreepLaw> = { lee2003, lee1998, deng1998, lewis2001 };
+export const LAW_IDS: LawId[] = ['lee2003', 'lee1998', 'deng1998', 'lewis2001'];
+/** Laws used by default in the Monte Carlo: the two Lee laws reproduce the validation data
+ *  (docs/VALIDATION.md); Deng 1998 under-predicts (−30…−50 %) and Lewis 2001 over-predicts (×1.6–3),
+ *  so they are shown as references only. */
+export const MC_LAW_IDS: LawId[] = ['lee2003', 'lee1998'];
