@@ -246,3 +246,30 @@ test('series: a phantom liner runs end to end and exports one CSV row per mode',
   assert.equal(elevationStatus(50, summarize([10, 20, 30])), 'below');
   assert.equal(elevationStatus(5, summarize([10, 20, 30])), 'consistent');
 });
+
+// ---------- v0.7: ABG II and the dose model ----------
+import { doseFactor, materialPreset } from '../src/model/materials.ts';
+
+test('dose model reproduces its anchors and orders the treatments', () => {
+  near(doseFactor({ doseKGy: 30, thermal: 'annealed' }).nominal, 1.0, 1e-9);      // Duration
+  near(doseFactor({ doseKGy: 100, thermal: 'annealed' }).nominal, 0.85, 1e-9);    // Crossfire / X3
+  near(doseFactor({ doseKGy: 95, thermal: 'remelted' }).nominal, 1.13, 1e-9);     // Durasul
+  near(doseFactor({ doseKGy: 133, thermal: 'vitamin-e' }).nominal, 0.86, 1e-9);   // E1
+  near(doseFactor({ doseKGy: 33, thermal: 'none' }).nominal, 1.0, 1e-9);          // ArCom
+  assert.ok(doseFactor({ doseKGy: 100, thermal: 'remelted' }).nominal > doseFactor({ doseKGy: 100, thermal: 'annealed' }).nominal);
+  assert.ok(doseFactor({ doseKGy: 300, thermal: 'remelted' }).extrapolated);
+  const p = materialPreset('dose', { doseKGy: 100, thermal: 'annealed' });
+  near(p.creepFactor.lo, 0.85 * 0.85, 1e-3);
+  assert.equal(p.recovery10k.nominal, 0.60);
+  assert.equal(materialPreset('abg2-duration').creepFactor.nominal, 1.0);
+});
+
+test('HipWear file with dose and thermal treatment', () => {
+  const ph = makePhantom() as any;
+  ph.implant.material = 'dose'; ph.implant.radiationDoseKGy = 75; ph.implant.thermalTreatment = 'remelted';
+  const L = parseHipWearInput(JSON.stringify(ph), 'd.json');
+  assert.equal(L.material, 'dose');
+  assert.deepEqual(L.irradiation, { doseKGy: 75, thermal: 'remelted' });
+  const c = caseFromLoaded(defaultCase(), L);
+  assert.ok(materialPreset(c.material, c.irradiation).creepFactor.nominal > 1.0);
+});

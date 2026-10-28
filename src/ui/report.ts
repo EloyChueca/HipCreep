@@ -4,7 +4,7 @@
 
 import type { CaseInput } from '../model/case.ts';
 import { LAWS, type LawId, type Loading } from '../model/laws.ts';
-import { MATERIALS } from '../model/materials.ts';
+import { MATERIALS, materialPreset } from '../model/materials.ts';
 import { gaitSeconds, implantSeconds, verdict, type DeterministicResult, type McResult, type Verdict } from '../model/analysis.ts';
 import { binPolar, minCreepDepthUm, modelToPolar, syntheticBases, type ElevationResult, type SurfaceData, type PolarGrid } from '../model/surface.ts';
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
@@ -87,7 +87,7 @@ export function renderEmpty(root: HTMLElement): void {
 export function renderReport(root: HTMLElement, d: ReportData): void {
   root.innerHTML = '';
   const { c, mc } = d;
-  const mat = MATERIALS[c.material];
+  const mat = materialPreset(c.material, c.irradiation);
   const S = mc.summary;
 
   // ---------- Header + summary table ----------
@@ -532,7 +532,7 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
 // ------------------------------------------------------------
 function renderMethods(root: HTMLElement, d: ReportData): void {
   const { c } = d;
-  const mat = MATERIALS[c.material];
+  const mat = materialPreset(c.material, c.irradiation);
   const s = document.createElement('section');
   s.className = 'section';
   s.innerHTML = `<details class="explain big"><summary>Model, assumptions and references</summary>

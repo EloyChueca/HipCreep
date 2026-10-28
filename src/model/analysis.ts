@@ -9,7 +9,7 @@
 
 import { G, DAYS_PER_MONTH, SECONDS_PER_DAY, SECONDS_PER_YEAR } from './constants.ts';
 import { LAWS, type LawId, type Loading, type LawOptions } from './laws.ts';
-import { MATERIALS, type Range } from './materials.ts';
+import { materialPreset, type Range } from './materials.ts';
 import { simulate, RES_FINE, RES_MC, type Resolution, type SimResult } from './creep.ts';
 import { recoveredFraction, RECOVERY_LONG_10K, type RecoveryKinetics, type RecoveryScenario } from './recovery.ts';
 import type { CaseInput } from './case.ts';
@@ -34,11 +34,11 @@ export interface ScenarioParams {
 }
 
 export function creepFactorRange(c: CaseInput): Range {
-  return c.creepFactorOverride ?? MATERIALS[c.material].creepFactor;
+  return c.creepFactorOverride ?? materialPreset(c.material, c.irradiation).creepFactor;
 }
 
 export function recoveryRange(c: CaseInput): Range {
-  return c.recoveryOverride ?? MATERIALS[c.material].recovery10k;
+  return c.recoveryOverride ?? materialPreset(c.material, c.irradiation).recovery10k;
 }
 
 export function nominalParams(c: CaseInput): ScenarioParams {

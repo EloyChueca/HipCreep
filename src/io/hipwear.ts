@@ -4,7 +4,7 @@
 // ============================================================
 
 import type { Vec3, SurfaceMesh } from '../model/surface.ts';
-import type { MaterialId } from '../model/materials.ts';
+import type { MaterialId, Irradiation, ThermalTreatment } from '../model/materials.ts';
 import { MATERIAL_IDS } from '../model/materials.ts';
 
 export const FORMAT_ID = 'hipcreep-input';
@@ -15,7 +15,7 @@ export interface HipCreepInputFile {
   version: number;
   source?: { program?: string; programVersion?: string; file?: string; exportedAt?: string; analysisMode?: string; truth?: Record<string, number> };
   case?: { id?: string; yearsInVivo?: number | null; daysExVivo?: number | null };
-  implant?: { headDiameterMm?: number | null; material?: string | null; linerOuterDiameterMm?: number | null };
+  implant?: { headDiameterMm?: number | null; material?: string | null; linerOuterDiameterMm?: number | null; radiationDoseKGy?: number | null; thermalTreatment?: string | null };
   geometry: {
     commercialRadiusMm: number;
     measuredRadiusMm?: number | null;
@@ -52,6 +52,8 @@ export interface LoadedHipWearCase {
   exVivoDays: number | null;
   headDiameterMm: number;
   material: MaterialId | null;
+  /** Radiation dose and thermal treatment, when the file gives them */
+  irradiation: Irradiation | null;
   thicknessMm: number | null;
   thicknessSdMm: number | null;
   clearanceMm: number | null;
@@ -171,6 +173,9 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
     exVivoDays: isNum(j.case?.daysExVivo) ? j.case!.daysExVivo! : null,
     headDiameterMm,
     material,
+    irradiation: isNum(j.implant?.radiationDoseKGy)
+      ? { doseKGy: j.implant!.radiationDoseKGy!, thermal: (['none', 'annealed', 'remelted', 'vitamin-e'].includes(j.implant?.thermalTreatment ?? '') ? j.implant!.thermalTreatment : 'none') as ThermalTreatment }
+      : null,
     thicknessMm,
     thicknessSdMm,
     clearanceMm,

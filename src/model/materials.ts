@@ -26,7 +26,7 @@
 //    no percentage is published for liners: the HXLPE range is an assumption.
 // ============================================================
 
-export type MaterialId = 'virgin' | 'conventional' | 'hxlpe-remelted' | 'hxlpe-annealed' | 'vite-hxlpe' | 'hxlpe';
+export type MaterialId = 'virgin' | 'conventional' | 'abg2-duration' | 'hxlpe-remelted' | 'hxlpe-annealed' | 'vite-hxlpe' | 'hxlpe' | 'dose';
 
 export interface Range { nominal: number; lo: number; hi: number }
 
@@ -55,6 +55,13 @@ export const MATERIALS: Record<MaterialId, MaterialPreset> = {
     recovery10k: { nominal: 0.51, lo: 0.30, hi: 0.60 },
     note: 'Creep factor from Takahashi 2016 liners (with Burger 2006 as low end). Recovery: Lee & Pienkowski 1998; low end from Galetz 2010.',
   },
+  'abg2-duration': {
+    id: 'abg2-duration',
+    label: 'ABG II — Duration (γ 30 kGy N₂ + annealed 50 °C)',
+    creepFactor: { nominal: 1.0, lo: 0.85, hi: 1.15 },
+    recovery10k: { nominal: 0.51, lo: 0.30, hi: 0.60 },
+    note: 'Duration (Stryker/Howmedica, ABG II): γ 30 kGy in nitrogen, annealed 50 °C for 144 h — moderately cross-linked. Röhrl 2005 (RSA): same early creep as γ-in-air and 100 kGy annealed PE (63 µm in 2 months for the three). Burger 2006: annealing raised γ-sterilised creep from 0.76–0.82 to 0.95 of virgin (2 h, RT). Taken as conventional (dose model: annealed, 30 kGy → 1.0). Recovery as conventional.',
+  },
   'hxlpe-remelted': {
     id: 'hxlpe-remelted',
     label: 'Highly cross-linked, remelted (e.g. Durasul, Longevity, Marathon)',
@@ -76,6 +83,13 @@ export const MATERIALS: Record<MaterialId, MaterialPreset> = {
     recovery10k: { nominal: 0.60, lo: 0.35, hi: 0.75 },
     note: 'Takahashi 2016: 0.86 × conventional (E1 vs ArCom, 9 liner sizes). Recovery range is an assumption.',
   },
+  'dose': {
+    id: 'dose',
+    label: 'By radiation dose and thermal treatment…',
+    creepFactor: { nominal: 1.0, lo: 0.85, hi: 1.15 },
+    recovery10k: { nominal: 0.51, lo: 0.30, hi: 0.60 },
+    note: 'Factor interpolated from the dose and the thermal treatment (see doseFactor).',
+  },
   'hxlpe': {
     id: 'hxlpe',
     label: 'Highly cross-linked, type not specified',
@@ -85,4 +99,63 @@ export const MATERIALS: Record<MaterialId, MaterialPreset> = {
   },
 };
 
-export const MATERIAL_IDS: MaterialId[] = ['virgin', 'conventional', 'hxlpe-remelted', 'hxlpe-annealed', 'vite-hxlpe', 'hxlpe'];
+export const MATERIAL_IDS: MaterialId[] = ['conventional', 'abg2-duration', 'hxlpe-remelted', 'hxlpe-annealed', 'vite-hxlpe', 'hxlpe', 'virgin', 'dose'];
+
+// ------------------------------------------------------------
+// Creep factor from the radiation dose and the post-irradiation thermal treatment
+// ------------------------------------------------------------
+// The dose alone does not order the creep: the thermal treatment does (docs/LITERATURE.md).
+// Anchor points (dose in kGy → factor relative to unirradiated UHMWPE, the material of the laws):
+//  • none (sterilisation / cross-linking without heat): 0 → 1 · 33 → 1.0 (Takahashi 2016, ArCom 33 kGy)
+//      · 50–150 → 1.12–1.14 (Lewis 2001, γ in air, compression)
+//  • annealed (below Tm): 30 → 1.0 (Duration; Röhrl 2005 = γ-in-air) · 100 → 0.85 (Crossfire / X3; Takahashi 2014)
+//      · 125 → 0.73 (Burger 2006)
+//  • remelted (above Tm): 30 → 1.0 · 95–100 → 1.13 (Estok 2005, Durasul; Lewis 2001) · 150 → 1.13
+//  • vitamin E (diffused or blended, cross-linked): 30 → 1.0 · 133 → 0.86 (Takahashi 2016, E1: 100 + 33 kGy)
+// Linear interpolation between anchors; constant beyond the last one (flagged as extrapolated).
+// Range: ±15 % of the nominal (spread between studies). Recovery: conventional below 50 kGy,
+// cross-linked range from 50 kGy.
+export type ThermalTreatment = 'none' | 'annealed' | 'remelted' | 'vitamin-e';
+export interface Irradiation { doseKGy: number; thermal: ThermalTreatment }
+
+export const THERMAL_LABEL: Record<ThermalTreatment, string> = {
+  none: 'None (sterilisation or cross-linking only)',
+  annealed: 'Annealed (below melting)',
+  remelted: 'Remelted (above melting)',
+  'vitamin-e': 'Vitamin E (diffused or blended)',
+};
+
+const DOSE_ANCHORS: Record<ThermalTreatment, [number, number][]> = {
+  none: [[0, 1], [33, 1.0], [50, 1.12], [150, 1.14]],
+  annealed: [[0, 1], [30, 1.0], [100, 0.85], [125, 0.73]],
+  remelted: [[0, 1], [30, 1.0], [95, 1.13], [150, 1.13]],
+  'vitamin-e': [[0, 1], [30, 1.0], [133, 0.86]],
+};
+
+export function doseFactor(irr: Irradiation): { nominal: number; extrapolated: boolean } {
+  const a = DOSE_ANCHORS[irr.thermal] ?? DOSE_ANCHORS.none;
+  const d = Math.max(0, irr.doseKGy);
+  const last = a[a.length - 1];
+  if (d >= last[0]) return { nominal: last[1], extrapolated: d > last[0] * 1.2 };
+  for (let i = 1; i < a.length; i++) {
+    if (d <= a[i][0]) {
+      const f = (d - a[i - 1][0]) / (a[i][0] - a[i - 1][0]);
+      return { nominal: a[i - 1][1] + f * (a[i][1] - a[i - 1][1]), extrapolated: false };
+    }
+  }
+  return { nominal: last[1], extrapolated: true };
+}
+
+/** Preset of a case: the fixed grades, or the one computed from the dose and the thermal treatment */
+export function materialPreset(id: MaterialId, irr?: Irradiation | null): MaterialPreset {
+  if (id !== 'dose' || !irr) return MATERIALS[id];
+  const f = doseFactor(irr);
+  const xl = irr.doseKGy >= 50;
+  return {
+    id: 'dose',
+    label: `${irr.doseKGy.toFixed(0)} kGy · ${THERMAL_LABEL[irr.thermal].split(' (')[0].toLowerCase()}`,
+    creepFactor: { nominal: +f.nominal.toFixed(3), lo: +(0.85 * f.nominal).toFixed(3), hi: +(1.15 * f.nominal).toFixed(3) },
+    recovery10k: xl ? { nominal: 0.60, lo: 0.35, hi: 0.75 } : { nominal: 0.51, lo: 0.30, hi: 0.60 },
+    note: `Creep factor ${f.nominal.toFixed(2)} interpolated for ${irr.doseKGy.toFixed(0)} kGy, ${THERMAL_LABEL[irr.thermal].toLowerCase()} (anchors: Takahashi 2016, Lewis 2001, Röhrl 2005, Estok 2005, Burger 2006)${f.extrapolated ? ' — dose beyond the data, constant extrapolation' : ''}. Range ±15 %.`,
+  };
+}

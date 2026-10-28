@@ -54,7 +54,9 @@ unless the key says `Um` (µm), angles in degrees. Unknown values may be omitted
 | `case.yearsInVivo` | recommended | `AnalysisParams.yearsInVivo` | implantation time |
 | `case.daysExVivo` | recommended | **new input** — days from revision surgery to scanning | creep recovery |
 | `implant.headDiameterMm` | optional | 2 × `CommercialSphereInfo.commercialRadius` if not given | contact pressure |
-| `implant.material` | optional | **new input**: `virgin`, `conventional`, `hxlpe`, `vite-hxlpe` | creep factor, recovery |
+| `implant.material` | optional | **new input**: `conventional`, `abg2-duration`, `hxlpe-remelted`, `hxlpe-annealed`, `vite-hxlpe`, `hxlpe` (type unknown), `virgin`, `dose` | creep factor, recovery |
+| `implant.radiationDoseKGy` | with `material = "dose"` | total dose (sterilisation + cross-linking), kGy | creep factor (dose model) |
+| `implant.thermalTreatment` | with `material = "dose"` | `none`, `annealed`, `remelted`, `vitamin-e` | creep factor (dose model) |
 | `geometry.commercialRadiusMm` | **yes** | `TwoSphereResult.radius` | head radius |
 | `geometry.measuredRadiusMm`, `measuredRadiusReliable` | recommended | `WearVolumeResult.measuredRadius.radius`, `.reliable` | radial clearance; zero plane of the sphere → plane step |
 | `geometry.measuredCenter` | optional | `WearVolumeResult.measuredRadius.center` | centre that goes with the measured radius in the sphere → plane step |

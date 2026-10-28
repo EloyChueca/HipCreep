@@ -5,7 +5,7 @@
 // ============================================================
 
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
-import { MATERIALS, MATERIAL_IDS, type MaterialId } from '../model/materials.ts';
+import { MATERIALS, MATERIAL_IDS, THERMAL_LABEL, type MaterialId, type Irradiation, type ThermalTreatment } from '../model/materials.ts';
 import type { SeriesResult, ElevationStatus } from '../model/series.ts';
 import { fmt, escapeHtml, cssVar } from './format.ts';
 import { svg, add, niceTicks, showTip, hideTip } from './charts.ts';
@@ -14,6 +14,7 @@ export interface SeriesItem {
   L: LoadedHipWearCase;
   bodyMassKg: number;
   material: MaterialId;
+  irradiation: Irradiation;
   exVivoDays: number;
   implantMonths: number;
 }
@@ -25,8 +26,8 @@ export interface SeriesCallbacks {
 }
 
 const MAT_COLOR: Record<MaterialId, string> = {
-  'virgin': '--text-secondary', 'conventional': '--series-2', 'hxlpe-remelted': '--series-1',
-  'hxlpe-annealed': '--series-3', 'vite-hxlpe': '--series-4', 'hxlpe': '--text-muted',
+  'virgin': '--text-secondary', 'conventional': '--series-2', 'abg2-duration': '--series-2', 'hxlpe-remelted': '--series-1',
+  'hxlpe-annealed': '--series-3', 'vite-hxlpe': '--series-4', 'hxlpe': '--text-muted', 'dose': '--text-primary',
 };
 
 function section(root: HTMLElement, title: string, lead?: string): HTMLElement {
@@ -48,6 +49,8 @@ export function renderSeriesSetup(root: HTMLElement, items: SeriesItem[], cb: Se
       <td>${i + 1}</td><td><b>${escapeHtml(it.L.caseId)}</b><div class="range">${escapeHtml(it.L.name)}</div></td>
       <td><input type="number" class="s-years" step="0.01" min="0" value="${+(it.implantMonths / 12).toFixed(2)}" aria-label="Years in vivo" /></td>
       <td><select class="s-mat" aria-label="Polyethylene">${MATERIAL_IDS.map((id) => `<option value="${id}"${id === it.material ? ' selected' : ''}>${escapeHtml(MATERIALS[id].label)}</option>`).join('')}</select></td>
+      <td><input type="number" class="s-dose" step="1" min="0" value="${it.irradiation.doseKGy}" aria-label="Dose (kGy)" ${it.material === 'dose' ? '' : 'disabled'} />
+        <select class="s-th" aria-label="Thermal treatment" ${it.material === 'dose' ? '' : 'disabled'}>${(Object.keys(THERMAL_LABEL) as ThermalTreatment[]).map((k) => `<option value="${k}"${k === it.irradiation.thermal ? ' selected' : ''}>${escapeHtml(THERMAL_LABEL[k].split(' (')[0])}</option>`).join('')}</select></td>
       <td><input type="number" class="s-mass" step="1" min="20" value="${it.bodyMassKg}" aria-label="Body mass" /></td>
       <td><input type="number" class="s-days" step="1" min="0" value="${it.exVivoDays}" aria-label="Days ex vivo" /></td>
       <td>${m ? (m.notDetected ? `n.d. (&lt; ${fmt(m.detectionLimitUm)})` : `${fmt(m.penetrationUm)} ± ${fmt(m.sdUm)}`) : '—'}</td>
@@ -56,7 +59,7 @@ export function renderSeriesSetup(root: HTMLElement, items: SeriesItem[], cb: Se
       <td><button class="btn s-del" type="button" title="Remove from the series">✕</button></td></tr>`;
   }).join('');
   sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-setup">
-    <thead><tr><th>#</th><th>Case</th><th>Years in vivo</th><th>Polyethylene</th><th>Body mass (kg)</th><th>Days ex vivo</th><th>D (µm)</th><th>Surface</th><th>Notes</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>Case</th><th>Years in vivo</th><th>Polyethylene</th><th>Dose (kGy) / treatment<div class="range">only for “By radiation dose…”</div></th><th>Body mass (kg)</th><th>Days ex vivo</th><th>D (µm)</th><th>Surface</th><th>Notes</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>
     <div class="export-row" style="margin-top:12px"><button class="btn primary" id="s-run">Run series</button><button class="btn" id="s-close">Back to single case</button>
     <span class="muted" id="s-status" style="font-size:12px;align-self:center"></span></div>
@@ -67,10 +70,19 @@ export function renderSeriesSetup(root: HTMLElement, items: SeriesItem[], cb: Se
       const it = items[+tr.dataset.i!];
       it.implantMonths = Math.max(0, +(tr.querySelector('.s-years') as HTMLInputElement).value * 12);
       it.material = (tr.querySelector('.s-mat') as HTMLSelectElement).value as MaterialId;
+      it.irradiation = { doseKGy: Math.max(0, +(tr.querySelector('.s-dose') as HTMLInputElement).value || 0), thermal: (tr.querySelector('.s-th') as HTMLSelectElement).value as ThermalTreatment };
       it.bodyMassKg = Math.max(20, +(tr.querySelector('.s-mass') as HTMLInputElement).value || 80);
       it.exVivoDays = Math.max(0, +(tr.querySelector('.s-days') as HTMLInputElement).value || 0);
     });
   };
+  tb.addEventListener('change', (ev) => {
+    const t = ev.target as HTMLElement;
+    if (!t.classList.contains('s-mat')) return;
+    const tr = t.closest('tr')!;
+    const on = (t as HTMLSelectElement).value === 'dose';
+    (tr.querySelector('.s-dose') as HTMLInputElement).disabled = !on;
+    (tr.querySelector('.s-th') as HTMLSelectElement).disabled = !on;
+  });
   tb.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('.s-del');
     if (!b) return;
@@ -94,7 +106,7 @@ export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res:
     const D = r.measured ? (r.measured.notDetected ? `n.d.<div class="range">&lt; ${fmt(r.measured.detectionLimitUm)}</div>` : `<b>${fmt(r.measured.penetrationUm)}</b><div class="range">± ${fmt(r.measured.sdUm)}</div>`) : '—';
     const ev = r.elevationMinCreepUm ? `<b>${fmt(r.elevationMinCreepUm.nominal)}</b><div class="range">${fmt(r.elevationMinCreepUm.lo)} – ${fmt(r.elevationMinCreepUm.hi)}</div><div class="range">L&amp;P ${lp?.elevation ? ELEV_TXT[lp.elevation] : '—'} · long ${lg?.elevation ? ELEV_TXT[lg.elevation] : '—'}</div>` : '—';
     const vd = m.verdict ? `<span class="badge ${m.verdict.level}" title="${escapeHtml(m.verdict.detail)}">${m.verdict.level === 'separable' ? '✓' : m.verdict.level === 'inconsistent' ? '!' : '≈'}</span> ${escapeHtml(m.verdict.title)}` : '—';
-    return `<tr><td>${i + 1}</td><td><b>${escapeHtml(r.caseId)}</b><div class="range"><span class="swatch" style="background:${cssVar(MAT_COLOR[r.material])}"></span>${escapeHtml(MATERIALS[r.material].label.split(',')[0])}</div></td>
+    return `<tr><td>${i + 1}</td><td><b>${escapeHtml(r.caseId)}</b><div class="range"><span class="swatch" style="background:${cssVar(MAT_COLOR[r.material])}"></span>${escapeHtml(r.materialLabel.split(',')[0])}</div></td>
       <td>${fmt(r.years)}</td><td>${D}</td><td>${cell(m.creep)}</td><td>${cell(lp?.remaining)}</td><td>${cell(lg?.remaining)}</td>
       <td>${cell(lp?.wear)}</td><td>${cell(lg?.wear)}</td><td>${ev}</td><td class="vd">${vd}</td>
       <td><button class="btn s-open" data-i="${i}" type="button">Open</button></td></tr>`;
@@ -120,10 +132,10 @@ export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res:
     const c2 = document.createElement('div');
     c2.className = 'chart-card';
     c2.style.marginTop = '14px';
-    const mats = Array.from(new Set(res.map((r) => r.material)));
+    const mats = Array.from(new Map(res.map((r) => [r.materialLabel, r.material])).entries());
     c2.innerHTML = `<div class="chart-title">Estimated wear vs time in vivo (dynamic)</div>
       <div class="chart-sub">Vertical segment: from the long-loading to the L&amp;P median (the recovery uncertainty); dot: envelope median. Colour = polyethylene.</div>
-      <div class="legend">${mats.map((m) => `<span class="item"><span class="swatch" style="background:${cssVar(MAT_COLOR[m])}"></span>${escapeHtml(MATERIALS[m].label.split(',')[0])}</span>`).join('')}</div>`;
+      <div class="legend">${mats.map(([lab, m]) => `<span class="item"><span class="swatch" style="background:${cssVar(MAT_COLOR[m])}"></span>${escapeHtml(lab.split(',')[0])}</span>`).join('')}</div>`;
     sec.appendChild(c2);
     wearVsYears(c2, res);
   }
@@ -213,7 +225,7 @@ function wearVsYears(container: HTMLElement, res: SeriesResult[]): void {
     const d = r.modes.dynamic, a = d.byScenario.long?.wear?.p50, b = d.byScenario.lp?.wear?.p50;
     if (a != null && b != null) add(s, 'line', { x1: X(r.years), x2: X(r.years), y1: Y(a), y2: Y(b), stroke: col, 'stroke-width': 3, 'stroke-opacity': 0.5, 'stroke-linecap': 'round' });
     const dot = add(s, 'circle', { cx: X(r.years), cy: Y(d.wear!.p50), r: 5, fill: col, stroke: 'var(--chart-surface)', 'stroke-width': 1.5 });
-    dot.addEventListener('mousemove', (ev) => showTip(`<b>${escapeHtml(r.caseId)}</b><div>${fmt(r.years)} years · ${escapeHtml(MATERIALS[r.material].label.split(',')[0])}</div><div>W median ${fmt(d.wear!.p50)} µm (long ${fmt(a)} · L&amp;P ${fmt(b)})</div><div>≈ ${fmt(d.wear!.p50 / Math.max(r.years, 0.01))} µm/year</div>`, ev));
+    dot.addEventListener('mousemove', (ev) => showTip(`<b>${escapeHtml(r.caseId)}</b><div>${fmt(r.years)} years · ${escapeHtml(r.materialLabel.split(',')[0])}</div><div>W median ${fmt(d.wear!.p50)} µm (long ${fmt(a)} · L&amp;P ${fmt(b)})</div><div>≈ ${fmt(d.wear!.p50 / Math.max(r.years, 0.01))} µm/year</div>`, ev));
     dot.addEventListener('mouseleave', hideTip);
   }
   container.appendChild(s);

@@ -10,7 +10,7 @@
 
 import type { CaseInput } from './case.ts';
 import type { Loading } from './laws.ts';
-import type { MaterialId } from './materials.ts';
+import { materialPreset, type MaterialId } from './materials.ts';
 import { MODES, runDeterministic, runMonteCarlo, verdict, type McResult, type Verdict } from './analysis.ts';
 import { analyseSurface, elevationAnalysis, minCreepDepthUm } from './surface.ts';
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
@@ -25,6 +25,7 @@ export function caseFromLoaded(base: CaseInput, L: LoadedHipWearCase): CaseInput
   if (L.exVivoDays != null) c.exVivoDays = L.exVivoDays;
   c.headDiameterMm = L.headDiameterMm;
   if (L.material) c.material = L.material;
+  if (L.irradiation) c.irradiation = { ...L.irradiation };
   if (L.thicknessMm != null) c.thicknessMm = +L.thicknessMm.toFixed(3);
   if (L.thicknessSdMm != null) c.thicknessSdMm = L.thicknessSdMm;
   if (L.clearanceMm != null) {
@@ -59,6 +60,8 @@ export interface SeriesResult {
   file: string;
   years: number;
   material: MaterialId;
+  /** Label of the polyethylene (includes dose and treatment for the 'dose' grade) */
+  materialLabel: string;
   bodyMassKg: number;
   exVivoDays: number;
   headDiameterMm: number;
@@ -102,7 +105,7 @@ export async function runSeriesCase(
     };
   }
   return {
-    caseId: c.caseId, file: L.name, years: c.implantMonths / 12, material: c.material, bodyMassKg: c.bodyMassKg,
+    caseId: c.caseId, file: L.name, years: c.implantMonths / 12, material: c.material, materialLabel: materialPreset(c.material, c.irradiation).label, bodyMassKg: c.bodyMassKg,
     exVivoDays: c.exVivoDays, headDiameterMm: c.headDiameterMm, thicknessMm: c.thicknessMm, measured: c.measured,
     modes, elevationMinCreepUm: elev, warnings: L.warnings, elapsedMs: performance.now() - t0,
   };
@@ -122,7 +125,7 @@ export function seriesCsv(rows: SeriesResult[]): string {
   const L = [head.join(',')];
   for (const r of rows) for (const mode of MODES) {
     const m = r.modes[mode], lp = m.byScenario.lp, lg = m.byScenario.long;
-    L.push([q(r.caseId), q(r.file), r.material, n(r.years, 2), n(r.bodyMassKg, 0), n(r.exVivoDays, 0), n(r.headDiameterMm, 1), n(r.thicknessMm, 2), mode,
+    L.push([q(r.caseId), q(r.file), q(r.materialLabel), n(r.years, 2), n(r.bodyMassKg, 0), n(r.exVivoDays, 0), n(r.headDiameterMm, 1), n(r.thicknessMm, 2), mode,
       r.measured && !r.measured.notDetected ? n(r.measured.penetrationUm) : '', r.measured && !r.measured.notDetected ? n(r.measured.sdUm) : '',
       r.measured?.notDetected ? 'yes' : 'no', n(r.measured?.detectionLimitUm ?? null, 0),
       n(m.creep.p50), n(m.creep.p5), n(m.creep.p95),

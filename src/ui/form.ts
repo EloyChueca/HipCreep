@@ -4,7 +4,7 @@
 
 import type { CaseInput } from '../model/case.ts';
 import { LAWS, LAW_IDS, type LawId } from '../model/laws.ts';
-import { MATERIALS, MATERIAL_IDS, type MaterialId, type Range } from '../model/materials.ts';
+import { MATERIALS, MATERIAL_IDS, THERMAL_LABEL, materialPreset, type MaterialId, type Range, type ThermalTreatment } from '../model/materials.ts';
 
 export interface UiSettings {
   /** Radius of the original surface for the sphere-to-plane step */
@@ -53,6 +53,10 @@ const SECTIONS: Section[] = [
         help: 'Penetration direction of the HipWear two-sphere model (0° = toward the pole).' },
       { kind: 'number', id: 'coverageDeg', label: 'Bearing coverage from pole', unit: '°', step: 1, min: 45 },
       { kind: 'select', id: 'material', label: 'Polyethylene', options: MATERIAL_IDS.map((m) => [m, MATERIALS[m].label] as [string, string]) },
+      { kind: 'number', id: 'doseKGy', label: 'Radiation dose (total)', unit: 'kGy', step: 1, min: 0,
+        help: 'Only for "By radiation dose…": sterilisation + cross-linking dose.' },
+      { kind: 'select', id: 'thermal', label: 'Thermal treatment', options: (Object.keys(THERMAL_LABEL) as ThermalTreatment[]).map((k) => [k, THERMAL_LABEL[k]] as [string, string]),
+        help: 'The creep factor depends more on the treatment after irradiation than on the dose (docs/LITERATURE.md).' },
     ],
   },
   {
@@ -177,6 +181,8 @@ export function writeForm(c: CaseInput, ui: UiSettings): void {
   setNum('loadAngleDeg', c.loadAngleDeg);
   setNum('coverageDeg', c.coverageDeg);
   setSel('material', c.material);
+  setNum('doseKGy', c.irradiation.doseKGy);
+  setSel('thermal', c.irradiation.thermal);
   setNum('exVivoDays', c.exVivoDays);
   setNum('recoveryTempC', c.recoveryTempC);
   setNum('inVivoTempC', c.inVivoTempC);
@@ -195,7 +201,7 @@ export function writeForm(c: CaseInput, ui: UiSettings): void {
   setRange('eaKcal', c.eaKcal);
   setRange('E', c.E);
   setRange('nu', c.nu);
-  const mat = MATERIALS[c.material];
+  const mat = materialPreset(c.material, c.irradiation);
   setChk('creepFactorOn', !!c.creepFactorOverride);
   setRange('creepFactor', c.creepFactorOverride ?? mat.creepFactor);
   setChk('recoveryOn', !!c.recoveryOverride);
@@ -215,6 +221,8 @@ export function syncEnabled(): void {
     for (const s of ['', '-nom', '-lo', '-hi']) { const e = el<HTMLInputElement>(id + s); if (e) e.disabled = d; }
   };
   dis('creepFactor', !getChk('creepFactorOn'));
+  const isDose = getSel('material', 'conventional') === 'dose';
+  dis('doseKGy', !isDose); dis('thermal', !isDose);
   dis('recovery', !getChk('recoveryOn'));
   const m = getChk('manualMeasurement');
   dis('penetrationUm', !m); dis('penetrationSdUm', !m); dis('detectionLimitUm', !m);
@@ -222,7 +230,8 @@ export function syncEnabled(): void {
 
 /** Show the material preset ranges in the (disabled) override fields */
 export function showMaterialPreset(): void {
-  const mat = MATERIALS[getSel('material', 'conventional') as MaterialId];
+  const mat = materialPreset(getSel('material', 'conventional') as MaterialId,
+    { doseKGy: Math.max(0, getNum('doseKGy', 30)), thermal: getSel('thermal', 'none') as ThermalTreatment });
   if (!getChk('creepFactorOn')) setRange('creepFactor', mat.creepFactor);
   if (!getChk('recoveryOn')) setRange('recovery', mat.recovery10k);
 }
@@ -238,6 +247,7 @@ export function readForm(base: CaseInput, uiBase: UiSettings): { c: CaseInput; u
   c.loadAngleDeg = getNum('loadAngleDeg', base.loadAngleDeg);
   c.coverageDeg = getNum('coverageDeg', base.coverageDeg);
   c.material = getSel('material', base.material) as MaterialId;
+  c.irradiation = { doseKGy: Math.max(0, getNum('doseKGy', base.irradiation.doseKGy)), thermal: getSel('thermal', base.irradiation.thermal) as ThermalTreatment };
   c.exVivoDays = Math.max(0, getNum('exVivoDays', base.exVivoDays));
   c.recoveryTempC = getNum('recoveryTempC', base.recoveryTempC);
   c.inVivoTempC = getNum('inVivoTempC', base.inVivoTempC);
@@ -272,7 +282,7 @@ export function readForm(base: CaseInput, uiBase: UiSettings): { c: CaseInput; u
   c.E = getRange('E', base.E);
   c.nu = getRange('nu', base.nu);
   c.nu = { nominal: Math.min(0.49, c.nu.nominal), lo: Math.min(0.49, c.nu.lo), hi: Math.min(0.49, c.nu.hi) };
-  const mat = MATERIALS[c.material];
+  const mat = materialPreset(c.material, c.irradiation);
   c.creepFactorOverride = getChk('creepFactorOn') ? getRange('creepFactor', mat.creepFactor) : null;
   c.recoveryOverride = getChk('recoveryOn') ? getRange('recovery', mat.recovery10k) : null;
   c.kappa = Math.max(0.05, getNum('kappa', base.kappa));

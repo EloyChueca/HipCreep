@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { LawId } from './laws.ts';
-import type { MaterialId, Range } from './materials.ts';
+import type { MaterialId, Range, Irradiation } from './materials.ts';
 import { EA_BURGER_KCAL } from './temperature.ts';
 import { LAW_IDS, MC_LAW_IDS } from './laws.ts';
 
@@ -38,6 +38,8 @@ export interface CaseInput {
   /** Angular extent of the bearing surface from the pole (deg) */
   coverageDeg: number;
   material: MaterialId;
+  /** Radiation dose and thermal treatment (used when material = 'dose') */
+  irradiation: Irradiation;
   // Retrieval
   exVivoDays: number;
   recoveryTempC: number;
@@ -86,6 +88,7 @@ export function defaultCase(): CaseInput {
     loadAngleDeg: 20,
     coverageDeg: 90,
     material: 'conventional',
+    irradiation: { doseKGy: 30, thermal: 'none' },
     exVivoDays: 30,
     recoveryTempC: 22,
     inVivoTempC: 37,

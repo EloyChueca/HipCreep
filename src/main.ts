@@ -14,7 +14,7 @@ import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -48,7 +48,7 @@ renderEmpty($('report'));
 
 $('form-scroll').addEventListener('change', (ev) => {
   const id = (ev.target as HTMLElement).id;
-  if (id === 'f-material') showMaterialPreset();
+  if (id === 'f-material' || id === 'f-doseKGy' || id === 'f-thermal') showMaterialPreset();
   syncEnabled();
 });
 
@@ -98,7 +98,7 @@ const seriesCb: SeriesCallbacks = {
   onRun: (items) => void runSeries(items),
   onOpen: (it) => {
     applyLoaded(it.L);
-    caseInput = { ...caseInput, bodyMassKg: it.bodyMassKg, material: it.material, exVivoDays: it.exVivoDays, implantMonths: it.implantMonths };
+    caseInput = { ...caseInput, bodyMassKg: it.bodyMassKg, material: it.material, irradiation: { ...it.irradiation }, exVivoDays: it.exVivoDays, implantMonths: it.implantMonths };
     writeForm(caseInput, ui);
     void run();
   },
@@ -117,7 +117,7 @@ $('series-input').addEventListener('change', async (ev) => {
     try {
       const L = parseHipWearInput(await f.text(), f.name);
       const c = caseFromLoaded(base, L);
-      seriesItems.push({ L, bodyMassKg: c.bodyMassKg, material: c.material, exVivoDays: c.exVivoDays, implantMonths: c.implantMonths });
+      seriesItems.push({ L, bodyMassKg: c.bodyMassKg, material: c.material, irradiation: { ...c.irradiation }, exVivoDays: c.exVivoDays, implantMonths: c.implantMonths });
     } catch (e) { bad.push(`${f.name}: ${(e as Error).message}`); }
   }
   $('run-status').textContent = `${seriesItems.length} liners loaded${bad.length ? `; ${bad.length} file(s) could not be read (${bad.join('; ')})` : ''}.`;
@@ -140,7 +140,7 @@ async function runSeries(items: SeriesItem[]): Promise<void> {
       if (bar) bar.style.width = `${(100 * i / items.length).toFixed(1)}%`;
       await new Promise((res) => setTimeout(res, 10));
       const c = caseFromLoaded(caseInput, it.L);
-      c.bodyMassKg = it.bodyMassKg; c.material = it.material; c.exVivoDays = it.exVivoDays; c.implantMonths = it.implantMonths;
+      c.bodyMassKg = it.bodyMassKg; c.material = it.material; c.irradiation = { ...it.irradiation }; c.exVivoDays = it.exVivoDays; c.implantMonths = it.implantMonths;
       seriesResults.push(await runSeriesCase(c, it.L, { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg }));
     }
     if (bar) bar.style.width = '100%';

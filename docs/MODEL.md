@@ -100,10 +100,17 @@ The laws were measured on unirradiated UHMWPE; other grades multiply the creep s
 |---|---|---|
 | Unirradiated | 1 | — |
 | Conventional, γ-sterilised 25–40 kGy | 1.0 (0.85–1.2) | Takahashi 2016 (ArCom liners, 3000 N, 72 h): 0.89 (Lee 1998) – 1.33 (Lee 2003) at 0.05 mm clearance; Burger 2006 (0.82–0.95, 2 h RT) as low end |
+| ABG II — Duration (γ 30 kGy N₂ + annealed 50 °C, 144 h) | 1.0 (0.85–1.15) | Röhrl 2005 RSA: same early creep as γ-in-air and 100 kGy annealed; Burger 2006: annealing ×1.16 at 2 h, RT; = dose model (annealed, 30 kGy) |
 | HXLPE, remelted | 1.13 (0.96–1.36) | Estok 2005: +10–17 % vs conventional in identical liners; Lewis 2001 Table 3: ×1.12–1.14 |
 | HXLPE, annealed | 0.85 (0.73–1.0) | no liner data — Burger 2006 (125 kGy: 0.73), Takahashi 2014 (highest shape-recovery force) |
 | Vitamin-E HXLPE | 0.86 (0.73–1.03) | Takahashi 2016: E1/ArCom = 0.86 in 9 liner sizes |
 | HXLPE, unspecified | 1.0 (0.73–1.36) | envelope of the three |
+
+**By radiation dose and thermal treatment (v0.7).** Factor interpolated linearly between anchors (dose in kGy → factor):
+none 0 → 1, 33 → 1.0 (Takahashi 2016), 50–150 → 1.12–1.14 (Lewis 2001); annealed 30 → 1.0 (Duration, Röhrl 2005),
+100 → 0.85 (Crossfire/X3), 125 → 0.73 (Burger 2006); remelted 30 → 1.0, 95–150 → 1.13 (Estok 2005, Lewis 2001);
+vitamin E 30 → 1.0, 133 → 0.86 (Takahashi 2016). Constant beyond the last anchor (flagged). Range ±15 %; recovery as
+conventional below 50 kGy and as cross-linked above.
 
 v0.3 used 0.82 for conventional and 0.90 (0.55–1.14) for every HXLPE; the validation showed the conventional factor
 was too low and that the grades differ in sign (remelted creeps more than conventional, vitamin-E less).
