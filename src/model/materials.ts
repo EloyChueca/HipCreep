@@ -50,10 +50,10 @@ export const MATERIALS: Record<MaterialId, MaterialPreset> = {
   },
   'conventional': {
     id: 'conventional',
-    label: 'Conventional, γ-sterilised (25–40 kGy)',
+    label: 'Conventional, γ-sterilised 25–40 kGy (e.g. ABG I: γ in air)',
     creepFactor: { nominal: 1.0, lo: 0.85, hi: 1.2 },
     recovery10k: { nominal: 0.51, lo: 0.30, hi: 0.60 },
-    note: 'Creep factor from Takahashi 2016 liners (with Burger 2006 as low end). Recovery: Lee & Pienkowski 1998; low end from Galetz 2010.',
+    note: 'Creep factor from Takahashi 2016 liners (with Burger 2006 as low end). Recovery: Lee & Pienkowski 1998; low end from Galetz 2010. Includes ABG I (Howmedica, γ-sterilised in air, no thermal treatment). Air-sterilised liners may be heavily oxidised (shelf and in vivo); the creep data behind this factor are for non-oxidised PE, so treat oxidised liners with caution.',
   },
   'abg2-duration': {
     id: 'abg2-duration',

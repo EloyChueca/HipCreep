@@ -1,6 +1,6 @@
 {
   "name": "hipcreep",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "HipCreep \u2014 analytic creep estimation of UHMWPE acetabular liners and creep/wear separation using HipWear results",
   "type": "module",
   "scripts": {
