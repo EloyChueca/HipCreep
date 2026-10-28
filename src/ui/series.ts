@@ -97,7 +97,7 @@ export function renderSeriesSetup(root: HTMLElement, items: SeriesItem[], cb: Se
 const ELEV_TXT: Record<ElevationStatus, string> = { consistent: '✓', 'median-below': '≈', below: '✗' };
 
 /** Results of the whole series */
-export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res: SeriesResult[], cb: SeriesCallbacks, csv: () => void): void {
+export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res: SeriesResult[], cb: SeriesCallbacks, csv: () => void, xlsx?: () => void): void {
   const sec = section(root, 'Series results — dynamic mode',
     'Median and 90 % interval of the Monte Carlo for each liner, in µm. <b>L&amp;P</b> and <b>long</b> are the two recovery scenarios (Lee &amp; Pienkowski / long loading). <b>Elevation bound</b>: minimum remaining creep from the material pushed above the original sphere (sphere → plane); ✓ the model is consistent with it in that scenario, ≈ the model median is below it, ✗ the model is below it (under-predicts). The static mode is in the CSV.');
   const cell = (s: { p50: number; p5: number; p95: number } | null | undefined) => s ? `<b>${fmt(s.p50)}</b><div class="range">${fmt(s.p5)} – ${fmt(s.p95)}</div>` : '—';
@@ -139,8 +139,10 @@ export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res:
     sec.appendChild(c2);
     wearVsYears(c2, res);
   }
-  sec.insertAdjacentHTML('beforeend', `<div class="export-row" style="margin-top:12px"><button class="btn" id="s-csv">Series (CSV)</button><button class="btn" id="s-back">Edit series</button></div>`);
+  sec.insertAdjacentHTML('beforeend', `<div class="export-row" style="margin-top:12px"><button class="btn primary" id="s-xlsx">Series (Excel)</button><button class="btn" id="s-csv">Series (CSV)</button><button class="btn" id="s-back">Edit series</button></div>`);
   (sec.querySelector('#s-csv') as HTMLButtonElement).addEventListener('click', csv);
+  const bx = sec.querySelector('#s-xlsx') as HTMLButtonElement;
+  if (xlsx) bx.addEventListener('click', xlsx); else bx.remove();
   (sec.querySelector('#s-back') as HTMLButtonElement).addEventListener('click', () => renderSeriesSetup(root, items, cb));
 }
 

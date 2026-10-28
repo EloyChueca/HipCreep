@@ -11,10 +11,10 @@ import { caseFromLoaded, runSeriesCase, seriesCsv, type SeriesResult } from './m
 import { renderSeriesSetup, renderSeriesResults, type SeriesItem, type SeriesCallbacks } from './ui/series.ts';
 import { buildForm, writeForm, readForm, syncEnabled, showMaterialPreset, defaultUi, type UiSettings } from './ui/form.ts';
 import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
-import { download, resultsCsv, resultsJson } from './ui/export.ts';
+import { download, resultsCsv, resultsJson, seriesXlsx } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.7.1';
+const VERSION = '0.8.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -146,10 +146,19 @@ async function runSeries(items: SeriesItem[]): Promise<void> {
     if (bar) bar.style.width = '100%';
     const root = $('report');
     renderSeriesSetup(root, items, seriesCb);
-    renderSeriesResults(root, items, seriesResults, seriesCb, () => download('hipcreep-series.csv', seriesCsv(seriesResults), 'text/csv'));
+    const d0 = new Date(), p2 = (x: number) => String(x).padStart(2, '0');
+    const stamp = `${d0.getFullYear()}${p2(d0.getMonth() + 1)}${p2(d0.getDate())}-${p2(d0.getHours())}${p2(d0.getMinutes())}`;
+    const xlsxName = `hipcreep-series-${stamp}.xlsx`;
+    const res = seriesResults;
+    const settings = { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg };
+    const saveXlsx = () => download(xlsxName, seriesXlsx(res, caseInput, settings, VERSION));
+    renderSeriesResults(root, items, res, seriesCb, () => download('hipcreep-series.csv', seriesCsv(res), 'text/csv'), saveXlsx);
+    // Excel file with the results, downloaded automatically at the end of the series
+    let xlsxNote = `Excel file downloaded: ${xlsxName}`;
+    try { saveXlsx(); } catch (e) { console.error(e); xlsxNote = `Excel file could not be created (${(e as Error).message}); use the Series (Excel) button`; }
     const st = document.getElementById('s-status');
-    if (st) st.textContent = `Done: ${items.length} liners in ${((performance.now() - t0) / 1000).toFixed(1)} s.`;
-    $('run-status').textContent = `Series done: ${items.length} liners.`;
+    if (st) st.textContent = `Done: ${items.length} liners in ${((performance.now() - t0) / 1000).toFixed(1)} s. ${xlsxNote}.`;
+    $('run-status').textContent = `Series done: ${items.length} liners. ${xlsxNote}.`;
   } catch (e) {
     console.error(e);
     if (status) status.textContent = `Error: ${(e as Error).message}`;

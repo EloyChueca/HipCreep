@@ -113,26 +113,43 @@ export async function runSeriesCase(
 
 const q = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
 const n = (x: number | null | undefined, d = 1) => (x != null && Number.isFinite(x) ? x.toFixed(d) : '');
+/** Rounded number, or null when missing (for the Excel export) */
+const r1 = (x: number | null | undefined, d = 1): number | null => (x != null && Number.isFinite(x) ? Number(x.toFixed(d)) : null);
+
+export const SERIES_COLUMNS = ['case', 'file', 'material', 'years_in_vivo', 'body_mass_kg', 'days_ex_vivo', 'head_mm', 'wall_mm', 'mode',
+  'D_um', 'D_sd_um', 'D_not_detected', 'detection_limit_um',
+  'Cmax_p50', 'Cmax_p5', 'Cmax_p95',
+  'Crem_LP_p50', 'Crem_LP_p5', 'Crem_LP_p95', 'Crem_long_p50', 'Crem_long_p5', 'Crem_long_p95',
+  'W_LP_p50', 'W_LP_p5', 'W_LP_p95', 'W_long_p50', 'W_long_p5', 'W_long_p95',
+  'elev_min_creep_um', 'elev_min_lo', 'elev_min_hi', 'elev_check_LP', 'elev_check_long', 'verdict'] as const;
+
+/** Columns quoted in the CSV (free text) */
+const TEXT_COLS = new Set([0, 1, 2, 33]);
+
+/** One row per liner and loading mode; numbers rounded as in the CSV, null when missing */
+export function seriesTable(rows: SeriesResult[]): (string | number | null)[][] {
+  const out: (string | number | null)[][] = [];
+  for (const r of rows) for (const mode of MODES) {
+    const m = r.modes[mode], lp = m.byScenario.lp, lg = m.byScenario.long;
+    const D = r.measured && !r.measured.notDetected ? r.measured : null;
+    out.push([r.caseId, r.file, r.materialLabel, r1(r.years, 2), r1(r.bodyMassKg, 0), r1(r.exVivoDays, 0), r1(r.headDiameterMm, 1), r1(r.thicknessMm, 2), mode,
+      r1(D?.penetrationUm), r1(D?.sdUm),
+      r.measured?.notDetected ? 'yes' : 'no', r1(r.measured?.detectionLimitUm ?? null, 0),
+      r1(m.creep.p50), r1(m.creep.p5), r1(m.creep.p95),
+      r1(lp?.remaining.p50), r1(lp?.remaining.p5), r1(lp?.remaining.p95), r1(lg?.remaining.p50), r1(lg?.remaining.p5), r1(lg?.remaining.p95),
+      r1(lp?.wear?.p50), r1(lp?.wear?.p5), r1(lp?.wear?.p95), r1(lg?.wear?.p50), r1(lg?.wear?.p5), r1(lg?.wear?.p95),
+      r1(r.elevationMinCreepUm?.nominal), r1(r.elevationMinCreepUm?.lo), r1(r.elevationMinCreepUm?.hi),
+      lp?.elevation ?? null, lg?.elevation ?? null, m.verdict?.title ?? '']);
+  }
+  return out;
+}
 
 /** One row per liner and loading mode */
 export function seriesCsv(rows: SeriesResult[]): string {
-  const head = ['case', 'file', 'material', 'years_in_vivo', 'body_mass_kg', 'days_ex_vivo', 'head_mm', 'wall_mm', 'mode',
-    'D_um', 'D_sd_um', 'D_not_detected', 'detection_limit_um',
-    'Cmax_p50', 'Cmax_p5', 'Cmax_p95',
-    'Crem_LP_p50', 'Crem_LP_p5', 'Crem_LP_p95', 'Crem_long_p50', 'Crem_long_p5', 'Crem_long_p95',
-    'W_LP_p50', 'W_LP_p5', 'W_LP_p95', 'W_long_p50', 'W_long_p5', 'W_long_p95',
-    'elev_min_creep_um', 'elev_min_lo', 'elev_min_hi', 'elev_check_LP', 'elev_check_long', 'verdict'];
-  const L = [head.join(',')];
-  for (const r of rows) for (const mode of MODES) {
-    const m = r.modes[mode], lp = m.byScenario.lp, lg = m.byScenario.long;
-    L.push([q(r.caseId), q(r.file), q(r.materialLabel), n(r.years, 2), n(r.bodyMassKg, 0), n(r.exVivoDays, 0), n(r.headDiameterMm, 1), n(r.thicknessMm, 2), mode,
-      r.measured && !r.measured.notDetected ? n(r.measured.penetrationUm) : '', r.measured && !r.measured.notDetected ? n(r.measured.sdUm) : '',
-      r.measured?.notDetected ? 'yes' : 'no', n(r.measured?.detectionLimitUm ?? null, 0),
-      n(m.creep.p50), n(m.creep.p5), n(m.creep.p95),
-      n(lp?.remaining.p50), n(lp?.remaining.p5), n(lp?.remaining.p95), n(lg?.remaining.p50), n(lg?.remaining.p5), n(lg?.remaining.p95),
-      n(lp?.wear?.p50), n(lp?.wear?.p5), n(lp?.wear?.p95), n(lg?.wear?.p50), n(lg?.wear?.p5), n(lg?.wear?.p95),
-      n(r.elevationMinCreepUm?.nominal), n(r.elevationMinCreepUm?.lo), n(r.elevationMinCreepUm?.hi),
-      lp?.elevation ?? '', lg?.elevation ?? '', q(m.verdict?.title ?? '')].join(','));
+  const decimals = (j: number) => (j === 3 || j === 7 ? 2 : j === 4 || j === 5 || j === 12 ? 0 : 1);
+  const L = [SERIES_COLUMNS.join(',')];
+  for (const row of seriesTable(rows)) {
+    L.push(row.map((v, j) => TEXT_COLS.has(j) ? q(String(v ?? '')) : typeof v === 'number' ? n(v, decimals(j)) : (v ?? '')).join(','));
   }
   return L.join('\n');
 }

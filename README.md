@@ -17,7 +17,7 @@ liners, using the results of [HipWear](https://github.com/jpoves-a11y/GeoWear).
   surface. When HipWear detects no penetration, the remaining creep is compared with the detection limit instead.
 * Two **recovery scenarios** (Lee & Pienkowski / long loading), the remaining creep vs **time before scanning**, and a
   **sensitivity analysis** (which inputs drive the uncertainty).
-* **Series mode**: several HipWear exports at once, with a comparison table, charts and CSV — to analyse a retrieval
+* **Series mode**: several HipWear exports at once, with a comparison table, charts, CSV and an Excel file (.xlsx) downloaded automatically when the series finishes — to analyse a retrieval
   collection.
 
 The method, equations, parameter ranges and references are in [docs/MODEL.md](docs/MODEL.md); the input file
@@ -46,7 +46,7 @@ Requires Node ≥ 22.18. The model (`src/model/`) has no dependencies and runs b
 ```
 src/model/   laws.ts (creep laws) · creep.ts (contact + creep integration) · temperature.ts · recovery.ts
              materials.ts · analysis.ts (tables, Monte Carlo, verdict) · surface.ts (sphere → plane, elevations)
-             sensitivity.ts (rank correlations, recovery curves) · series.ts (one liner end to end, CSV)
+             sensitivity.ts (rank correlations, recovery curves) · series.ts (one liner end to end, CSV) · io/xlsx.ts (dependency-free .xlsx writer)
 src/io/      hipwear.ts (input format) · phantom.ts (synthetic liner)
 src/ui/      form, report, charts, polar maps, 3D surface view (surface3d.ts), series view, export
 tests/       model.test.ts

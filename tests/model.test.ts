@@ -273,3 +273,28 @@ test('HipWear file with dose and thermal treatment', () => {
   const c = caseFromLoaded(defaultCase(), L);
   assert.ok(materialPreset(c.material, c.irradiation).creepFactor.nominal > 1.0);
 });
+
+// ---------- v0.8: Excel export of a series ----------
+import { writeXlsx } from '../src/io/xlsx.ts';
+import { seriesTable, SERIES_COLUMNS } from '../src/model/series.ts';
+
+test('xlsx writer: valid zip with the workbook parts and cell values', () => {
+  const b = writeXlsx([{ name: 'Results', header: true, rows: [['a', 'b'], [1.5, 'x & <y>'], [null, 2]] }, { name: 'Info', rows: [['k', 'v']] }]);
+  assert.equal(b[0], 0x50); assert.equal(b[1], 0x4b);                 // "PK"
+  const txt = new TextDecoder().decode(b);
+  for (const part of ['[Content_Types].xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', 'xl/styles.xml'])
+    assert.ok(txt.includes(part), part);
+  assert.ok(txt.includes('<c r="A2" s="0"') || txt.includes('<c r="A2"><v>1.5</v></c>'));
+  assert.ok(txt.includes('x &amp; &lt;y&gt;'));
+  assert.ok(txt.includes('<c r="B3"><v>2</v></c>'));
+});
+
+test('series table: one row per mode with all columns, numbers as numbers', async () => {
+  const L = parseHipWearInput(JSON.stringify(makePhantom()), 'p.json');
+  const base = defaultCase(); base.samples = 60;
+  const r = await runSeriesCase(caseFromLoaded(base, L), L, { refRadius: 'measured', rimBandDeg: 2 });
+  const t = seriesTable([r]);
+  assert.equal(t.length, 2);
+  for (const row of t) assert.equal(row.length, SERIES_COLUMNS.length);
+  assert.equal(typeof t[0][SERIES_COLUMNS.indexOf('Cmax_p50')], 'number');
+});
