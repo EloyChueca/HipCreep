@@ -288,3 +288,9 @@ details.explain.big > summary { font-size: 15px; color: var(--text-primary); }
 /* recovery scenarios inside a summary cell */
 .sc { white-space: nowrap; line-height: 1.5; }
 .sc .sc-l { display: inline-block; min-width: 72px; font-size: 11px; color: var(--text-muted); text-align: right; margin-right: 4px; }
+
+/* series of liners */
+table.series-setup input, table.series-setup select { width: 100%; min-width: 64px; font: inherit; padding: 3px 4px; }
+table.series-setup select { min-width: 170px; }
+table.series-res td.vd { text-align: left; font-size: 12px; max-width: 220px; }
+table.series-res .badge { display: inline-flex; }

@@ -15,9 +15,14 @@ liners, using the results of [HipWear](https://github.com/jpoves-a11y/GeoWear).
   the order of the measurement uncertainty, **sphere → plane** maps and a lower bound of the creep from the volume of
   the elevations (material pushed above the original surface), with an interactive **3D view** of the unrolled
   surface. When HipWear detects no penetration, the remaining creep is compared with the detection limit instead.
+* Two **recovery scenarios** (Lee & Pienkowski / long loading), the remaining creep vs **time before scanning**, and a
+  **sensitivity analysis** (which inputs drive the uncertainty).
+* **Series mode**: several HipWear exports at once, with a comparison table, charts and CSV — to analyse a retrieval
+  collection.
 
 The method, equations, parameter ranges and references are in [docs/MODEL.md](docs/MODEL.md); the input file
-exported by HipWear is specified in [docs/HIPWEAR_EXPORT.md](docs/HIPWEAR_EXPORT.md).
+exported by HipWear is specified in [docs/HIPWEAR_EXPORT.md](docs/HIPWEAR_EXPORT.md); the validation is in
+[docs/VALIDATION.md](docs/VALIDATION.md) and the literature notes in [docs/LITERATURE.md](docs/LITERATURE.md).
 
 ## Use
 
@@ -41,8 +46,9 @@ Requires Node ≥ 22.18. The model (`src/model/`) has no dependencies and runs b
 ```
 src/model/   laws.ts (creep laws) · creep.ts (contact + creep integration) · temperature.ts · recovery.ts
              materials.ts · analysis.ts (tables, Monte Carlo, verdict) · surface.ts (sphere → plane, elevations)
+             sensitivity.ts (rank correlations, recovery curves) · series.ts (one liner end to end, CSV)
 src/io/      hipwear.ts (input format) · phantom.ts (synthetic liner)
-src/ui/      form, report, charts, polar maps, 3D surface view (surface3d.ts), export
+src/ui/      form, report, charts, polar maps, 3D surface view (surface3d.ts), series view, export
 tests/       model.test.ts
 ```
 

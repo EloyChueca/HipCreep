@@ -202,3 +202,47 @@ test('recovery scenarios: long loading recovers less and both are reported', asy
   const only = await runMonteCarlo(c);
   assert.equal(only.summary.dynamic.byScenario.long, null);
 });
+
+// ---------- v0.6: sensitivity, recovery curve, series ----------
+import { spearman, sensitivity, recoveryCurve } from '../src/model/sensitivity.ts';
+import { caseFromLoaded, runSeriesCase, seriesCsv, elevationStatus } from '../src/model/series.ts';
+
+test('spearman: monotonic = 1, reversed = −1, constant = NaN', () => {
+  near(spearman([1, 2, 3, 4], [1, 4, 9, 16]), 1, 1e-12);
+  near(spearman([1, 2, 3, 4], [8, 4, 2, 1]), -1, 1e-12);
+  assert.ok(Number.isNaN(spearman([1, 2, 3], [5, 5, 5])));
+});
+
+test('sensitivity ranks the recovery first for the remaining creep with both scenarios', async () => {
+  const c = defaultCase();
+  c.samples = 200; c.measured = { penetrationUm: 100, sdUm: 8 };
+  const mc = await runMonteCarlo(c);
+  const rows = sensitivity(mc, 'dynamic', 'remaining');
+  assert.ok(rows.length > 5);
+  assert.ok(['scenario', 'r10k'].includes(rows[0].key), rows.map((r) => r.key).join(','));
+  const w = sensitivity(mc, 'dynamic', 'wear');
+  assert.ok(w.some((r) => r.key === 'measuredD'));
+});
+
+test('recovery curve reproduces the Monte Carlo remaining creep at the case days', async () => {
+  const c = defaultCase();
+  c.samples = 150;
+  const mc = await runMonteCarlo(c);
+  const rc = recoveryCurve(mc, c, 'dynamic', [c.exVivoDays, 1000]);
+  near(rc.byScenario.lp!.remaining.p50[0], mc.summary.dynamic.byScenario.lp!.remaining.p50, 1e-6);
+  near(rc.byScenario.long!.remaining.p50[0], mc.summary.dynamic.byScenario.long!.remaining.p50, 1e-6);
+  assert.ok(rc.byScenario.lp!.remaining.p50[1] <= rc.byScenario.lp!.remaining.p50[0] + 1e-9);
+});
+
+test('series: a phantom liner runs end to end and exports one CSV row per mode', async () => {
+  const L = parseHipWearInput(JSON.stringify(makePhantom()), 'p.json');
+  const base = defaultCase(); base.samples = 80;
+  const c = caseFromLoaded(base, L);
+  const r = await runSeriesCase(c, L, { refRadius: 'measured', rimBandDeg: 2 });
+  assert.ok(r.modes.dynamic.byScenario.lp && r.modes.dynamic.byScenario.long);
+  assert.ok(r.elevationMinCreepUm && r.elevationMinCreepUm.nominal > 0);
+  const csv = seriesCsv([r]).split('\n');
+  assert.equal(csv.length, 3);
+  assert.equal(elevationStatus(50, summarize([10, 20, 30])), 'below');
+  assert.equal(elevationStatus(5, summarize([10, 20, 30])), 'consistent');
+});

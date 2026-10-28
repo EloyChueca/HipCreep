@@ -7,12 +7,14 @@ import { runDeterministic, runMonteCarlo } from './model/analysis.ts';
 import { analyseSurface, elevationAnalysis, type SurfaceData, type ElevationResult } from './model/surface.ts';
 import { parseHipWearInput, type LoadedHipWearCase } from './io/hipwear.ts';
 import { makePhantom } from './io/phantom.ts';
+import { caseFromLoaded, runSeriesCase, seriesCsv, type SeriesResult } from './model/series.ts';
+import { renderSeriesSetup, renderSeriesResults, type SeriesItem, type SeriesCallbacks } from './ui/series.ts';
 import { buildForm, writeForm, readForm, syncEnabled, showMaterialPreset, defaultUi, type UiSettings } from './ui/form.ts';
 import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -69,21 +71,7 @@ function setFileInfo(): void {
 function applyLoaded(L: LoadedHipWearCase): void {
   loaded = L;
   surfaceCache = null;
-  const c = readForm(caseInput, ui).c;
-  c.caseId = L.caseId;
-  if (L.implantMonths != null) c.implantMonths = +L.implantMonths.toFixed(3);
-  if (L.exVivoDays != null) c.exVivoDays = L.exVivoDays;
-  c.headDiameterMm = L.headDiameterMm;
-  if (L.material) c.material = L.material;
-  if (L.thicknessMm != null) c.thicknessMm = +L.thicknessMm.toFixed(3);
-  if (L.thicknessSdMm != null) c.thicknessSdMm = L.thicknessSdMm;
-  if (L.clearanceMm != null) {
-    const cl = +L.clearanceMm.toFixed(4);
-    c.clearance = { nominal: cl, lo: Math.max(0, +(cl - 0.03).toFixed(4)), hi: +(cl + 0.03).toFixed(4) };
-  }
-  if (L.loadAngleDeg != null) c.loadAngleDeg = +L.loadAngleDeg.toFixed(2);
-  c.measured = L.measured;
-  caseInput = c;
+  caseInput = caseFromLoaded(readForm(caseInput, ui).c, L);
   ui = { ...ui, manualMeasurement: !!L.measured };
   writeForm(caseInput, ui);
   setFileInfo();
@@ -101,6 +89,74 @@ $('file-input').addEventListener('change', async (ev) => {
   }
   input.value = '';
 });
+
+// ---------- series of liners ----------
+let seriesItems: SeriesItem[] = [];
+let seriesResults: SeriesResult[] = [];
+
+const seriesCb: SeriesCallbacks = {
+  onRun: (items) => void runSeries(items),
+  onOpen: (it) => {
+    applyLoaded(it.L);
+    caseInput = { ...caseInput, bodyMassKg: it.bodyMassKg, material: it.material, exVivoDays: it.exVivoDays, implantMonths: it.implantMonths };
+    writeForm(caseInput, ui);
+    void run();
+  },
+  onClose: () => { seriesItems = []; if (lastReport) render(lastReport); else renderEmpty($('report')); },
+};
+
+$('series-input').addEventListener('change', async (ev) => {
+  const input = ev.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  if (!files.length) return;
+  const base = readForm(caseInput, ui).c;
+  const bad: string[] = [];
+  seriesItems = [];
+  for (const f of files) {
+    try {
+      const L = parseHipWearInput(await f.text(), f.name);
+      const c = caseFromLoaded(base, L);
+      seriesItems.push({ L, bodyMassKg: c.bodyMassKg, material: c.material, exVivoDays: c.exVivoDays, implantMonths: c.implantMonths });
+    } catch (e) { bad.push(`${f.name}: ${(e as Error).message}`); }
+  }
+  $('run-status').textContent = `${seriesItems.length} liners loaded${bad.length ? `; ${bad.length} file(s) could not be read (${bad.join('; ')})` : ''}.`;
+  if (seriesItems.length) renderSeriesSetup($('report'), seriesItems, seriesCb);
+});
+
+async function runSeries(items: SeriesItem[]): Promise<void> {
+  if (running) return;
+  running = true;
+  const r0 = readForm(caseInput, ui);
+  caseInput = r0.c; ui = r0.ui;
+  const status = document.getElementById('s-status');
+  const bar = document.getElementById('s-bar');
+  const t0 = performance.now();
+  seriesResults = [];
+  try {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (status) status.textContent = `Liner ${i + 1} of ${items.length}: ${it.L.caseId}…`;
+      if (bar) bar.style.width = `${(100 * i / items.length).toFixed(1)}%`;
+      await new Promise((res) => setTimeout(res, 10));
+      const c = caseFromLoaded(caseInput, it.L);
+      c.bodyMassKg = it.bodyMassKg; c.material = it.material; c.exVivoDays = it.exVivoDays; c.implantMonths = it.implantMonths;
+      seriesResults.push(await runSeriesCase(c, it.L, { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg }));
+    }
+    if (bar) bar.style.width = '100%';
+    const root = $('report');
+    renderSeriesSetup(root, items, seriesCb);
+    renderSeriesResults(root, items, seriesResults, seriesCb, () => download('hipcreep-series.csv', seriesCsv(seriesResults), 'text/csv'));
+    const st = document.getElementById('s-status');
+    if (st) st.textContent = `Done: ${items.length} liners in ${((performance.now() - t0) / 1000).toFixed(1)} s.`;
+    $('run-status').textContent = `Series done: ${items.length} liners.`;
+  } catch (e) {
+    console.error(e);
+    if (status) status.textContent = `Error: ${(e as Error).message}`;
+  } finally {
+    running = false;
+  }
+}
 
 $('btn-demo').addEventListener('click', () => {
   applyLoaded(parseHipWearInput(JSON.stringify(makePhantom()), 'demo-phantom.json'));

@@ -208,6 +208,10 @@ export interface ModeSamples {
   creepShare: Float64Array | null;
 }
 
+/** Sampled inputs kept per Monte Carlo sample (sensitivity analysis, recovery curves) */
+export const PARAM_KEYS = ['forceBW', 'cyclesPerYear', 'dynStaticRatio', 'E', 'nu', 'thicknessMm', 'clearanceMm', 'eaKcal', 'materialFactor', 'r10k'] as const;
+export type ParamKey = typeof PARAM_KEYS[number];
+
 export interface McResult {
   n: number;
   lawIndex: Uint8Array;
@@ -215,6 +219,12 @@ export interface McResult {
   recoveredFraction: Float64Array;
   /** Recovery scenario of each sample: 0 = Lee & Pienkowski, 1 = long loading */
   scenario: Uint8Array;
+  /** Sampled parameters of each sample */
+  params: Record<ParamKey, Float64Array>;
+  /** 1 = log-linear recovery kinetics, 0 = plateau */
+  kineticsLog: Uint8Array;
+  /** 1 = Lee laws continue log-linearly beyond 10⁴ min, 0 = capped */
+  leeLog: Uint8Array;
   measuredUm: Float64Array | null;
   modes: Record<Loading, ModeSamples>;
   summary: Record<Loading, {
@@ -243,6 +253,8 @@ export async function runMonteCarlo(
   const lawIndex = new Uint8Array(n);
   const Rarr = new Float64Array(n);
   const scen = new Uint8Array(n);
+  const params = Object.fromEntries(PARAM_KEYS.map((k) => [k, new Float64Array(n)])) as Record<ParamKey, Float64Array>;
+  const kinLog = new Uint8Array(n), leeLog = new Uint8Array(n);
   const meas = c.measured;
   // not detected: D is only known to lie in [0, LoD] — no wear / creep split is computed
   const notDetected = !!meas?.notDetected;
@@ -266,6 +278,9 @@ export async function runMonteCarlo(
     const R = recoveryFor(c, p);
     Rarr[s] = R;
     scen[s] = p.recoveryScenario === 'long' ? 1 : 0;
+    for (const k of PARAM_KEYS) params[k][s] = p[k];
+    kinLog[s] = p.recoveryKinetics === 'log' ? 1 : 0;
+    leeLog[s] = p.leeExtrapolation === 'log' ? 1 : 0;
     const D = !meas ? 0 : notDetected ? uniform(rng, { nominal: lod / 2, lo: 0, hi: lod }) : normal(rng, meas.penetrationUm, meas.sdUm);
     if (Darr) Darr[s] = D;
     for (const mode of MODES) {
@@ -336,7 +351,7 @@ export async function runMonteCarlo(
     wear: modes.static.wearUm && modes.dynamic.wearUm ? summarize(cat(modes.static.wearUm, modes.dynamic.wearUm)) : null,
   };
   return {
-    n, lawIndex, laws, recoveredFraction: Rarr, scenario: scen, measuredUm: Darr, modes, summary, pooled,
+    n, lawIndex, laws, recoveredFraction: Rarr, scenario: scen, params, kineticsLog: kinLog, leeLog, measuredUm: Darr, modes, summary, pooled,
     recovery: summarize(Rarr),
     elapsedMs: performance.now() - t0,
   };

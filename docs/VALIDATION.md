@@ -197,3 +197,13 @@ Long-loading scenario vs measured: +10 %, +11 %, +2 %, −3 %. Same result with 
 | V6 Galetz (independent) | a_T 23 → 37 °C (≈ 3.3) | 61.5 | 3.2–4.6 (nominal 3.7) | 3.2–4.6 (nominal 3.7) |
 
 Still open: in vivo bedding-in (V5) is outside the model (sliding-assisted plastic flow, seating, run-in wear).
+
+## v0.6.0 — material ordering against clinical data (no model change)
+
+| Check | Clinical | HipCreep factors |
+|---|---|---|
+| Annealed / remelted HXLPE (Hamai 2016, early penetration, 36 matched pairs) | 0.159 / 0.234 mm = 0.68 | 0.85 / 1.13 = 0.75 |
+| Remelted HXLPE vs conventional (Glyn-Jones 2008, RSA) | 0.26 vs 0.27 mm ≈ 1.0 | 1.13 (range 0.96–1.36) |
+| Doses 25–100 kGy, first 2 months (Röhrl 2005) | no difference (63 µm on average) | 0.85–1.13 |
+
+Clinical early penetration includes seating and run-in wear, so these are checks of the ordering only (docs/LITERATURE.md).

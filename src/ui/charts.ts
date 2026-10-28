@@ -22,7 +22,7 @@ export function showTip(html: string, ev: MouseEvent): void {
 }
 export function hideTip(): void { tip().classList.add('hidden'); }
 
-function niceTicks(lo: number, hi: number, n = 5): number[] {
+export function niceTicks(lo: number, hi: number, n = 5): number[] {
   if (!(hi > lo)) return [lo];
   const span = hi - lo;
   const step0 = span / n;
@@ -33,7 +33,7 @@ function niceTicks(lo: number, hi: number, n = 5): number[] {
   return out;
 }
 
-function svg(w: number, h: number): SVGSVGElement {
+export function svg(w: number, h: number): SVGSVGElement {
   const s = document.createElementNS(NS, 'svg');
   s.setAttribute('viewBox', `0 0 ${w} ${h}`);
   s.setAttribute('width', '100%');
@@ -41,7 +41,7 @@ function svg(w: number, h: number): SVGSVGElement {
   s.style.maxHeight = `${h * 1.4}px`;
   return s;
 }
-function add<K extends keyof SVGElementTagNameMap>(parent: Element, tag: K, attrs: Record<string, string | number>): SVGElementTagNameMap[K] {
+export function add<K extends keyof SVGElementTagNameMap>(parent: Element, tag: K, attrs: Record<string, string | number>): SVGElementTagNameMap[K] {
   const e = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
   parent.appendChild(e);
@@ -54,6 +54,12 @@ export interface LineSeries {
   dash?: string;
   x: number[];
   y: number[];
+  /** Stroke width (default 2) */
+  width?: number;
+  /** No end label (e.g. P5 / P95 bounds) */
+  hideLabel?: boolean;
+  /** Left out of the hover tooltip */
+  noTip?: boolean;
 }
 
 export interface LineChartOptions {
@@ -98,8 +104,8 @@ export function lineChart(container: HTMLElement, o: LineChartOptions): void {
   const ends: { y: number; label: string; color: string }[] = [];
   for (const se of o.series) {
     const d = se.x.map((x, i) => `${i ? 'L' : 'M'}${X(x).toFixed(1)},${Y(se.y[i]).toFixed(1)}`).join('');
-    add(s, 'path', { d, fill: 'none', stroke: se.color, 'stroke-width': 2, 'stroke-dasharray': se.dash ?? 'none', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
-    ends.push({ y: Y(se.y[se.y.length - 1]), label: se.label, color: se.color });
+    add(s, 'path', { d, fill: 'none', stroke: se.color, 'stroke-width': se.width ?? 2, 'stroke-dasharray': se.dash ?? 'none', 'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'stroke-opacity': se.width && se.width < 1.5 ? 0.7 : 1 });
+    if (!se.hideLabel) ends.push({ y: Y(se.y[se.y.length - 1]), label: se.label, color: se.color });
   }
   ends.sort((a, b) => a.y - b.y);
   for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 12) ends[i].y = ends[i - 1].y + 12;
@@ -117,6 +123,7 @@ export function lineChart(container: HTMLElement, o: LineChartOptions): void {
     cross.setAttribute('x1', String(px)); cross.setAttribute('x2', String(px)); cross.setAttribute('visibility', 'visible');
     const rows: string[] = [];
     o.series.forEach((se, k) => {
+      if (se.noTip) { dots[k].setAttribute('visibility', 'hidden'); return; }
       const yv = interpLog(se.x, se.y, xv);
       if (yv == null) { dots[k].setAttribute('visibility', 'hidden'); return; }
       dots[k].setAttribute('cx', String(X(xv))); dots[k].setAttribute('cy', String(Y(yv))); dots[k].setAttribute('visibility', 'visible');
@@ -211,5 +218,30 @@ export function histogram(container: HTMLElement, values: ArrayLike<number>, col
     add(s, 'line', { x1: X(rf.x), x2: X(rf.x), y1: m.t, y2: H - m.b, stroke: 'var(--text-secondary)', 'stroke-dasharray': '4 3', 'stroke-width': 1.5 });
     add(s, 'text', { x: X(rf.x), y: m.t - 8, 'text-anchor': 'middle' }).textContent = rf.label;
   }
+  container.appendChild(s);
+}
+
+export interface BarRow { label: string; value: number; note?: string }
+
+/** Diverging horizontal bars around 0 (e.g. rank correlations, −1 … 1), largest first */
+export function divergingBars(container: HTMLElement, rows: BarRow[], xLabel: string, limit = 1, colors = { pos: 'var(--series-1)', neg: 'var(--series-2)' }): void {
+  const W = 560, rowH = 24, m = { l: 200, r: 44, t: 10, b: 38 };
+  const H = m.t + m.b + rows.length * rowH;
+  const X = (x: number) => m.l + ((x + limit) / (2 * limit)) * (W - m.l - m.r);
+  const s = svg(W, H);
+  for (const t of niceTicks(-limit, limit, 8)) {
+    add(s, 'line', { x1: X(t), x2: X(t), y1: m.t, y2: H - m.b, class: t === 0 ? 'axisline' : 'gridline' });
+    add(s, 'text', { x: X(t), y: H - m.b + 16, 'text-anchor': 'middle' }).textContent = fmt(t);
+  }
+  add(s, 'text', { x: (m.l + W - m.r) / 2, y: H - 6, 'text-anchor': 'middle' }).textContent = xLabel;
+  rows.forEach((r, i) => {
+    const cy = m.t + i * rowH + rowH / 2;
+    add(s, 'text', { x: m.l - 10, y: cy + 4, 'text-anchor': 'end' }).textContent = r.label;
+    const x0 = X(0), x1 = X(Math.max(-limit, Math.min(limit, r.value)));
+    const bar = add(s, 'rect', { x: Math.min(x0, x1), y: cy - 7, width: Math.max(1, Math.abs(x1 - x0)), height: 14, rx: 3, fill: r.value >= 0 ? colors.pos : colors.neg });
+    add(s, 'text', { x: r.value >= 0 ? x1 + 5 : x1 - 5, y: cy + 4, 'text-anchor': r.value >= 0 ? 'start' : 'end' }).textContent = fmt(r.value, 2);
+    bar.addEventListener('mousemove', (ev) => showTip(`<b>${escapeHtml(r.label)}</b><div>ρ = ${fmt(r.value, 2)}${r.note ? ` · ${escapeHtml(r.note)}` : ''}</div>`, ev));
+    bar.addEventListener('mouseleave', hideTip);
+  });
   container.appendChild(s);
 }

@@ -10,7 +10,9 @@ import { binPolar, minCreepDepthUm, modelToPolar, syntheticBases, type Elevation
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import type { UiSettings } from './form.ts';
 import { fmt, num, pct, fmtTime, escapeHtml, cssVar } from './format.ts';
-import { lineChart, rangeChart, histogram, type LineSeries, type RangeRow } from './charts.ts';
+import { lineChart, rangeChart, histogram, divergingBars, type LineSeries, type RangeRow } from './charts.ts';
+import { recoveryCurve, sensitivity } from '../model/sensitivity.ts';
+import { elevationStatus, type ElevationStatus } from '../model/series.ts';
 import { renderMap } from './polarmap.ts';
 import { renderSurface3D, type Surface3DField } from './surface3d.ts';
 import { percentileSE, type Stats } from '../model/stats.ts';
@@ -138,7 +140,9 @@ export function renderReport(root: HTMLElement, d: ReportData): void {
 
   renderLawsSection(root, d);
   renderMonteCarloSection(root, d);
+  renderRecoverySection(root, d);
   if (m) renderDecomposition(root, d);
+  renderSensitivitySection(root, d);
   renderSpherePlane(root, d);
   renderMethods(root, d);
 }
@@ -247,6 +251,72 @@ function renderMonteCarloSection(root: HTMLElement, d: ReportData): void {
     </tbody></table></div>
     <p class="muted" style="margin-top:6px;font-size:12px"><b>Sampling precision</b> of the remaining creep with ${mc.n} samples (±1 SE): ${prec}.
     More samples make these numbers more stable (the error falls as 1/√n: 4× the samples halves it) but do not narrow the 90 % interval, which comes from the uncertainty of the inputs and of the laws.</p>`);
+}
+
+// ------------------------------------------------------------
+// Time before scanning: remaining creep vs days unloaded, both recovery scenarios
+// ------------------------------------------------------------
+function renderRecoverySection(root: HTMLElement, d: ReportData): void {
+  const { c, mc } = d;
+  const sec = section(root, 'Time before scanning — recovery',
+    `Remaining creep in the liner as a function of the days it spent unloaded between explantation and scanning (at ${num(c.recoveryTempC)} °C), recomputed from the same Monte Carlo samples. <b>L&amp;P</b>: Lee &amp; Pienkowski 1998 (recovery measured after 7 days of loading — upper bound). <b>Long loading</b>: the permanent part grows with the loading time (Galetz 2010, Estok 2005) — almost no recovery. The dashed vertical line is this liner (${num(c.exVivoDays)} days). Most of the recovery happens in the first days, so liners received months after revision sit on the flat part of the curves.`);
+  const days: number[] = [];
+  for (let k = 0; k <= 28; k++) days.push(Math.pow(10, -1.4 + (k / 28) * 4.45));   // ≈ 1 h → 3 years
+  const grid = document.createElement('div');
+  grid.className = 'grid2';
+  sec.appendChild(grid);
+  const C1 = cssVar('--series-1'), C2 = cssVar('--series-2'), CI = cssVar('--text-secondary');
+  for (const mode of MODES) {
+    const rc = recoveryCurve(mc, c, mode, days);
+    const xs = days.map((x) => x * 86400);
+    const series: LineSeries[] = [];
+    const addSc = (k: 'lp' | 'long', color: string, name: string) => {
+      const b = rc.byScenario[k];
+      if (!b) return;
+      series.push({ label: `${name} median`, color, x: xs, y: b.remaining.p50 });
+      series.push({ label: `${name} P5`, color, x: xs, y: b.remaining.p5, dash: '3 3', width: 1, hideLabel: true, noTip: true });
+      series.push({ label: `${name} P95`, color, x: xs, y: b.remaining.p95, dash: '3 3', width: 1, hideLabel: true, noTip: true });
+    };
+    addSc('lp', C1, 'L&P');
+    addSc('long', C2, 'Long load.');
+    const m = c.measured;
+    if (m && !m.notDetected) series.push({ label: `measured D ${fmt(m.penetrationUm)} µm`, color: CI, x: xs, y: xs.map(() => m.penetrationUm), dash: '6 3', width: 1.5 });
+    if (m?.notDetected && m.detectionLimitUm) series.push({ label: `detection limit ${fmt(m.detectionLimitUm)} µm`, color: CI, x: xs, y: xs.map(() => m.detectionLimitUm!), dash: '6 3', width: 1.5 });
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `<div class="chart-title">Remaining creep vs time unloaded — ${mode}</div>
+      <div class="chart-sub">Median (solid) and 90 % interval (dashed) of each recovery scenario${m && !m.notDetected ? '; wear W = D − C<sub>rem</sub> is the gap to the measured D' : ''}.</div>`;
+    grid.appendChild(card);
+    lineChart(card, {
+      series, xLabel: 'days unloaded before scanning (log scale)', yLabel: 'remaining creep (µm)', xFormat: fmtTime,
+      xTicks: [3600, 86400, 7 * 86400, 30.44 * 86400, 182.6 * 86400, 365.25 * 86400, 3 * 365.25 * 86400],
+      marker: { x: Math.max(3600, c.exVivoDays * 86400), label: 'this liner' }, height: 280,
+    });
+  }
+}
+
+// ------------------------------------------------------------
+// Sensitivity: which inputs drive the uncertainty
+// ------------------------------------------------------------
+function renderSensitivitySection(root: HTMLElement, d: ReportData): void {
+  const { c, mc } = d;
+  const sec = section(root, 'Sensitivity — which inputs drive the uncertainty',
+    'Spearman rank correlation ρ between every input sampled by the Monte Carlo and the result. Positive: a larger input gives a larger result; ρ² is roughly the share of the spread explained by that input. Inputs at the top are the ones worth measuring or constraining better for this liner.');
+  const grid = document.createElement('div');
+  grid.className = 'grid2';
+  sec.appendChild(grid);
+  const outputs: { mode: Loading; out: 'remaining' | 'wear'; title: string }[] = [{ mode: 'dynamic', out: 'remaining', title: 'Remaining creep — dynamic' }];
+  if (c.measured && !c.measured.notDetected) outputs.push({ mode: 'dynamic', out: 'wear', title: 'Estimated wear W — dynamic' });
+  else outputs.push({ mode: 'static', out: 'remaining', title: 'Remaining creep — static' });
+  for (const o of outputs) {
+    const rows = sensitivity(mc, o.mode, o.out).slice(0, 10);
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `<div class="chart-title">${o.title}</div><div class="chart-sub">Top ${rows.length} inputs by |ρ| (${mc.n} samples)</div>`;
+    grid.appendChild(card);
+    divergingBars(card, rows.map((r) => ({ label: r.label, value: r.rho, note: `ρ² ≈ ${pct(r.rho * r.rho)}` })), 'Spearman ρ');
+  }
+  sec.insertAdjacentHTML('beforeend', `<p class="muted" style="margin-top:6px;font-size:12px">"Recovery scenario" is 0 for Lee &amp; Pienkowski and 1 for long loading; "Creep law" orders the Monte Carlo laws (${mc.laws.map((id) => LAWS[id].shortRef).join(', ')}); the two extrapolation/kinetics options are 0/1 switches. Rank correlations capture monotonic effects only; interactions between inputs are not separated.</p>`);
 }
 
 // ------------------------------------------------------------
@@ -368,8 +438,15 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
     const minNom = minCreepDepthUm(e.nominal.netMm3, shape);
     const minLo = minCreepDepthUm(e.netRangeMm3[0], shape), minHi = minCreepDepthUm(e.netRangeMm3[1], shape);
     const remDyn = S.dynamic.remaining;
-    const consistency = minNom > remDyn.p95 ? 'model remaining creep is BELOW the elevation bound (model under-predicts)'
-      : minNom > remDyn.p50 ? 'model median is below the elevation bound' : 'model consistent with the elevation bound';
+    const STATUS: Record<ElevationStatus, string> = {
+      consistent: '✓ consistent', 'median-below': '≈ median below the bound', below: '✗ below the bound (model under-predicts)',
+    };
+    const consistency = MODES.map((mode) => {
+      const bs = S[mode].byScenario;
+      const parts = (['lp', 'long'] as const).filter((k) => bs[k]).map((k) =>
+        `${k === 'lp' ? 'L&amp;P' : 'long loading'} ${fmt(bs[k]!.remaining.p50)} µm ${STATUS[elevationStatus(minNom, bs[k]!.remaining)]}`);
+      return `<div><b>${MODE_LABEL[mode]}</b>: ${parts.join(' · ')}</div>`;
+    }).join('');
     const radiusEq = e.radiusSensitivityMm3PerUm > 0 ? e.nominal.netMm3 / e.radiusSensitivityMm3PerUm : NaN;
     const rowsE = [...e.rows].sort((a, b) => a.k - b.k || a.sigmaUm - b.sigmaUm).map((r) => `<tr><td>${r.k}·σ (σ = ${fmt(r.sigmaUm)} µm)</td><td>${fmt(r.thresholdUm)}</td><td>${fmt(r.rawMm3, 3)}</td><td>${fmt(r.noiseFloorMm3, 3)}</td><td><b>${fmt(r.netMm3, 3)}</b></td><td>${fmt(r.elevatedAreaMm2)}</td></tr>`).join('');
     sec.insertAdjacentHTML('beforeend', `
@@ -377,7 +454,7 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
         <tbody>
           <tr><th scope="row">Net elevation volume</th><td><b>${fmt(e.nominal.netMm3, 3)}</b> mm³ <span class="range-i">(${fmt(e.netRangeMm3[0], 3)} – ${fmt(e.netRangeMm3[1], 3)})</span></td></tr>
           <tr class="hl"><th scope="row">Minimum remaining creep (from the elevations)</th><td><b>${fmt(minNom)}</b> µm <span class="range-i">(${fmt(minLo)} – ${fmt(minHi)})</span></td></tr>
-          <tr><th scope="row">Model remaining creep, dynamic / static</th><td><b>${fmt(remDyn.p50)}</b> / <b>${fmt(S.static.remaining.p50)}</b> µm — ${consistency}</td></tr>
+          <tr><th scope="row">Model remaining creep vs this bound<div class="note-s">median of each recovery scenario; ✓ if the bound is below the median, ✗ if above P95</div></th><td style="text-align:left">${consistency}<div class="range">envelope median ${fmt(remDyn.p50)} (dynamic) / ${fmt(S.static.remaining.p50)} µm (static)</div></td></tr>
           <tr><th scope="row">Location of the elevations</th><td>${fmt(e.elevationPsiDeg)}° from the load axis, ${fmt(e.elevationThetaDeg)}° from the pole</td></tr>
           <tr><th scope="row">Robustness</th><td>the same volume would appear with a ${fmt(radiusEq)} µm error in the reference radius (${fmt(e.radiusSensitivityMm3PerUm, 3)} mm³ per µm)</td></tr>
           <tr><th scope="row">Reference (zero plane)</th><td>${ref}; noise σ = ${fmt(e.sigmaEffUm)} µm</td></tr>

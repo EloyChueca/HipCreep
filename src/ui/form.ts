@@ -32,6 +32,8 @@ const SECTIONS: Section[] = [
       <div class="btn-row">
         <label class="btn" for="file-input" title="File exported by HipWear (format hipcreep-input)">Load HipWear file…</label>
         <input id="file-input" type="file" accept=".json,application/json" class="hidden" />
+        <label class="btn" for="series-input" title="Several HipWear exports: run them all and compare creep and wear across the series">Load series…</label>
+        <input id="series-input" type="file" accept=".json,application/json" multiple class="hidden" />
         <button class="btn" id="btn-demo" title="Synthetic liner with known creep, wear and noise">Demo case</button>
         <button class="btn" id="btn-demo-download" title="Download the demo file to see the input format">Demo file ⭳</button>
         <button class="btn" id="btn-clear">Clear</button>

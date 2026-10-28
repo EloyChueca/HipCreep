@@ -156,6 +156,21 @@ Verdict per mode:
   compatible with creep (or the model over-predicts for this liner).
 * **Separable** — wear and remaining creep reported with their 90 % intervals.
 
+## 5b. Sensitivity and time before scanning (v0.6)
+
+* **Sensitivity**: Spearman rank correlation ρ between each sampled input (force, cycles, k, E, ν, wall, clearance,
+  Ea, material factor, R₁₀ₖ, law, recovery scenario, extrapolation and kinetics switches, measured D) and the remaining
+  creep or the wear, over the Monte Carlo samples. ρ² ≈ share of the spread explained by that input (monotonic effects).
+* **Time before scanning**: the creep at explantation of every sample is kept, so the remaining creep and the wear are
+  recomputed for 1 hour – 3 years unloaded without new simulations, for both recovery scenarios.
+
+## 5c. Series of liners (v0.6)
+
+Several HipWear exports are run with the shared inputs of the sidebar plus what each file provides (head, wall,
+clearance, load direction, penetration, surface); years in vivo, polyethylene, body mass and days ex vivo can be edited
+per liner. Output per liner: D, creep at explantation, remaining creep and wear in each recovery scenario, elevation
+bound and its consistency with each scenario, verdict; charts of D vs remaining creep and of wear vs time in vivo; CSV.
+
 ## 6. Sphere → plane and the minimum creep
 
 Every vertex of the inner surface is expressed about the centre of the **original** sphere (two-sphere model):
