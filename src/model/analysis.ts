@@ -29,6 +29,8 @@ export interface ScenarioParams {
   eaKcal: number;
   materialFactor: number;
   leeExtrapolation: 'cap' | 'log';
+  /** In vivo time after which the creep stops growing (years); 0 = no saturation */
+  satYears: number;
   r10k: number;
   recoveryKinetics: RecoveryKinetics;
   recoveryScenario: RecoveryScenario;
@@ -54,6 +56,7 @@ export function nominalParams(c: CaseInput): ScenarioParams {
     eaKcal: c.eaKcal.nominal,
     materialFactor: creepFactorRange(c).nominal,
     leeExtrapolation: c.leeExtrapolation === 'log' ? 'log' : 'cap',
+    satYears: c.creepSaturation === 'clinical' ? c.saturationYears.nominal : 0,
     r10k: recoveryRange(c).nominal,
     recoveryKinetics: c.recoveryKinetics === 'log' ? 'log' : 'plateau',
     recoveryScenario: 'lp',
@@ -73,6 +76,7 @@ export function sampleParams(c: CaseInput, rng: () => number): ScenarioParams {
     eaKcal: uniform(rng, c.eaKcal),
     materialFactor: uniform(rng, creepFactorRange(c)),
     leeExtrapolation: pick(c.leeExtrapolation, 'cap', 'log'),
+    satYears: 0,
     r10k: uniform(rng, recoveryRange(c)),
     recoveryKinetics: pick(c.recoveryKinetics, 'plateau', 'log'),
     recoveryScenario: 'lp',
@@ -80,6 +84,7 @@ export function sampleParams(c: CaseInput, rng: () => number): ScenarioParams {
   // drawn after the other parameters so the rest of the sample does not depend on it
   const sc = pick(c.recoveryScenario ?? 'both', 'lp', 'long');
   if (sc === 'long') { out.recoveryScenario = 'long'; out.r10k = uniform(rng, RECOVERY_LONG_10K); }
+  if (c.creepSaturation === 'clinical') out.satYears = uniform(rng, c.saturationYears);
   return out;
 }
 
@@ -92,16 +97,43 @@ export function gaitSeconds(c: CaseInput, cyclesPerYear: number): number {
   return (cyclesPerYear * implantSeconds(c) / SECONDS_PER_YEAR) / Math.max(c.gaitFrequencyHz, 1e-6);
 }
 
+/**
+ * Loading time seen by the creep law. Without saturation it is the physical loading time T. With the
+ * clinical saturation the law is run to the effective time t_eff = t_s·(1 − e^(−T/t_s)), where t_s is the
+ * loading time accumulated during the first `satYears` in vivo: t_eff ≈ T early on (the laboratory law
+ * unchanged) and t_eff → t_s for long implantation (the creep stops growing, as seen with RSA).
+ */
+export function effectiveLoadingSeconds(c: CaseInput, p: ScenarioParams, mode: Loading): { T: number; tSat: number | null; tEff: number } {
+  const T = mode === 'static' ? implantSeconds(c) : gaitSeconds(c, p.cyclesPerYear);
+  if (!(p.satYears > 0)) return { T, tSat: null, tEff: T };
+  const yearsS = p.satYears * SECONDS_PER_YEAR;
+  const tSat = mode === 'static' ? yearsS : (p.cyclesPerYear * p.satYears) / Math.max(c.gaitFrequencyHz, 1e-6);
+  return { T, tSat, tEff: tSat * (1 - Math.exp(-T / tSat)) };
+}
+
 export function runSim(
   c: CaseInput, p: ScenarioParams, lawId: LawId, mode: Loading, tempC: number, res: Resolution, history = false,
 ): SimResult {
   const lawOpt: LawOptions = { leeExtrapolation: p.leeExtrapolation };
+  const time = effectiveLoadingSeconds(c, p, mode);
+  const out = simulateCase(c, p, lawId, mode, tempC, res, history, lawOpt, time.tEff);
+  // history in physical time: invert t_eff(T)
+  if (time.tSat && out.history) {
+    const ts = time.tSat;
+    out.history.tS = Float64Array.from(out.history.tS, (t) => -ts * Math.log(Math.max(1e-12, 1 - t / ts)));
+  }
+  return out;
+}
+
+function simulateCase(
+  c: CaseInput, p: ScenarioParams, lawId: LawId, mode: Loading, tempC: number, res: Resolution, history: boolean, lawOpt: LawOptions, timeS: number,
+): SimResult {
   return simulate({
     law: LAWS[lawId],
     lawOpt,
     mode,
     forceN: p.forceBW * c.bodyMassKg * G,
-    timeS: mode === 'static' ? implantSeconds(c) : gaitSeconds(c, p.cyclesPerYear),
+    timeS,
     dynStaticRatio: p.dynStaticRatio,
     tempC,
     eaKcal: p.eaKcal,
@@ -210,7 +242,7 @@ export interface ModeSamples {
 }
 
 /** Sampled inputs kept per Monte Carlo sample (sensitivity analysis, recovery curves) */
-export const PARAM_KEYS = ['forceBW', 'cyclesPerYear', 'dynStaticRatio', 'E', 'nu', 'thicknessMm', 'clearanceMm', 'eaKcal', 'materialFactor', 'r10k'] as const;
+export const PARAM_KEYS = ['forceBW', 'cyclesPerYear', 'dynStaticRatio', 'E', 'nu', 'thicknessMm', 'clearanceMm', 'eaKcal', 'materialFactor', 'r10k', 'satYears'] as const;
 export type ParamKey = typeof PARAM_KEYS[number];
 
 /** Sampled inputs of one loading mode's Monte Carlo (sensitivity analysis, recovery curves) */

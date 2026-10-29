@@ -9,6 +9,10 @@ import { MATERIAL_IDS } from '../model/materials.ts';
 
 export const FORMAT_ID = 'hipcreep-input';
 export const FORMAT_VERSION = 1;
+/** Penetration directions beyond the cup face are not taken as the load axis of the creep model */
+const MAX_LOAD_ANGLE_DEG = 90;
+/** Walls thinner than this are taken as a measurement failure */
+const MIN_WALL_MM = 2;
 
 export interface HipCreepInputFile {
   format: typeof FORMAT_ID;
@@ -103,7 +107,12 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
     const pl = Math.hypot(...pole), ll = Math.hypot(...load);
     loadAngleDeg = Math.acos(Math.max(-1, Math.min(1, (pole[0] * load[0] + pole[1] * load[1] + pole[2] * load[2]) / (pl * ll)))) * 180 / Math.PI;
   }
-  if (loadAngleDeg == null) warnings.push('No penetration direction: the load angle from the cup axis must be entered manually (default 20°).');
+  if (loadAngleDeg != null && loadAngleDeg > MAX_LOAD_ANGLE_DEG) {
+    // A penetration pointing beyond the cup face cannot be the joint-load axis (rim damage, subluxation or a
+    // two-sphere fit that followed the rim): the creep model then uses the default load angle instead.
+    warnings.push(`Penetration direction ${loadAngleDeg.toFixed(0)}° from the cup axis (beyond the cup face): not used as the load axis of the creep model; the default load angle is used (enter another one if known).`);
+    loadAngleDeg = null;
+  } else if (loadAngleDeg == null) warnings.push('No penetration direction: the load angle from the cup axis must be entered manually (default 20°).');
 
   const Rc = g.commercialRadiusMm;
   const headDiameterMm = isNum(j.implant?.headDiameterMm) ? j.implant!.headDiameterMm! : 2 * Rc;
@@ -118,6 +127,14 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
   if (wt && isNum(wt.atPenetration)) thicknessMm = wt.atPenetration;
   else if (wt && isNum(wt.mean)) thicknessMm = wt.mean;
   else if (isNum(g.outerShellRadiusMm)) thicknessMm = g.outerShellRadiusMm - (Rm ?? Rc);
+  let wallRejected = false;
+  if (thicknessMm != null && thicknessMm < MIN_WALL_MM) {
+    wallRejected = true;
+    // A wall of a few tenths of a millimetre means the back surface was not separated from the bearing
+    // surface in HipWear (or the outer shell fit failed): ignore it.
+    warnings.push(`Wall thickness from the file (${thicknessMm.toFixed(2)} mm) is not plausible (back surface not separated in HipWear?): enter it manually (default used).`);
+    thicknessMm = null;
+  }
   // Uncertainty of the wall under the load: the local dispersion (HipWear ≥ 1.1). Older exports only
   // carry the SD over the whole back surface, which mixes in the shape of the back: cap it.
   if (wt && isNum(wt.sdAtPenetration)) thicknessSdMm = wt.sdAtPenetration;
@@ -126,7 +143,7 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
     thicknessSdMm = Math.min(wt.sd, cap);
     if (wt.sd > cap) warnings.push(`Wall-thickness SD of the whole back surface (${wt.sd.toFixed(2)} mm) capped at ${cap.toFixed(2)} mm for the Monte Carlo (re-export from the latest HipWear for the local value).`);
   }
-  if (thicknessMm == null) warnings.push('No wall thickness in the file: enter it manually.');
+  if (thicknessMm == null && !wallRejected) warnings.push('No wall thickness in the file: enter it manually.');
 
   let measured: LoadedHipWearCase['measured'] = null;
   const useCorr = isNum(w.linearWearCorrectedUm);

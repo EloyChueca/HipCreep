@@ -88,6 +88,9 @@ const SECTIONS: Section[] = [
   {
     title: 'Creep model', fields: [
       { kind: 'laws', id: 'laws', label: 'Creep laws — shown / used by the Monte Carlo (one law per sample)' },
+      { kind: 'select', id: 'creepSaturation', label: 'Long-term creep in vivo', options: [['clinical', 'Saturates (clinical RSA)'], ['none', 'Laboratory law only']],
+        help: 'RSA studies: ≈ 95 % of the creep within 6 months and nearly all within the first year (Glyn-Jones 2008, Bergvinsson 2021). Saturates: the laboratory law up to that time, then no further growth.' },
+      { kind: 'range', id: 'saturationYears', label: 'Creep saturation time in vivo', unit: 'years', step: 0.1 },
       { kind: 'select', id: 'leeExtrapolation', label: 'Lee laws beyond 10⁴ min', options: [['log', 'Log-linear continues'], ['both', 'Both (sampled)'], ['cap', 'Saturates']] },
       { kind: 'select', id: 'recoveryScenario', label: 'Recovery scenario', options: [['both', 'Both (reported separately)'], ['lp', 'Lee & Pienkowski only'], ['long', 'Long loading only']],
         help: 'Lee & Pienkowski 1998: ≈ 51 % recovered after 7 days of loading. Long loading (Galetz 2010, Estok 2005): the permanent part grows with the loading time, recovery 0–15 %.' },
@@ -196,6 +199,8 @@ export function writeForm(c: CaseInput, ui: UiSettings): void {
   setRange('dynStaticRatio', c.dynStaticRatio);
   for (const id of LAW_IDS) { setChk('law-' + id, c.laws.includes(id)); setChk('mclaw-' + id, c.mcLaws.includes(id)); }
   setSel('leeExtrapolation', c.leeExtrapolation);
+  setSel('creepSaturation', c.creepSaturation);
+  setRange('saturationYears', c.saturationYears);
   setSel('recoveryKinetics', c.recoveryKinetics);
   setSel('recoveryScenario', c.recoveryScenario);
   setRange('eaKcal', c.eaKcal);
@@ -276,6 +281,8 @@ export function readForm(base: CaseInput, uiBase: UiSettings): { c: CaseInput; u
   const laws = LAW_IDS.filter((id) => getChk('law-' + id) || c.mcLaws.includes(id));
   c.laws = laws as LawId[];
   c.leeExtrapolation = getSel('leeExtrapolation', base.leeExtrapolation) as CaseInput['leeExtrapolation'];
+  c.creepSaturation = getSel('creepSaturation', base.creepSaturation) as CaseInput['creepSaturation'];
+  c.saturationYears = getRange('saturationYears', base.saturationYears);
   c.recoveryKinetics = getSel('recoveryKinetics', base.recoveryKinetics) as CaseInput['recoveryKinetics'];
   c.recoveryScenario = getSel('recoveryScenario', base.recoveryScenario) as CaseInput['recoveryScenario'];
   c.eaKcal = getRange('eaKcal', base.eaKcal);

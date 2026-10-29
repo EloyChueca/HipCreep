@@ -60,6 +60,13 @@ export interface CaseInput {
   /** Laws sampled by the Monte Carlo (subset of `laws`) */
   mcLaws: LawId[];
   leeExtrapolation: Either<'cap' | 'log'>;
+  /**
+   * Long-term creep in vivo (v0.12). 'clinical': the creep follows the laboratory law but saturates after
+   * the time in vivo `saturationYears` (RSA: ≈ 95 % of the creep within 6 months, nearly all within the
+   * first year — Glyn-Jones 2008, Bergvinsson 2021); 'none': the laboratory law alone.
+   */
+  creepSaturation: 'clinical' | 'none';
+  saturationYears: Range;
   recoveryKinetics: Either<'plateau' | 'log'>;
   /** Recovery scenario: Lee & Pienkowski, long loading (near zero) or both (sampled 50/50) */
   recoveryScenario: Either<'lp' | 'long'>;
@@ -105,6 +112,8 @@ export function defaultCase(): CaseInput {
     mcLaws: [...MC_LAW_IDS],
     // Lee & Pienkowski 1998: steady creep rate after ≈4·10³ min; Estok 2005: penetration still grows
     leeExtrapolation: 'log',
+    creepSaturation: 'clinical',
+    saturationYears: { nominal: 1, lo: 0.5, hi: 2 },
     recoveryKinetics: 'both',
     recoveryScenario: 'both',
     // Galetz & Glatzel 2010 (≈ 15.5) – Burger 2006 (19.3), see temperature.ts

@@ -22,6 +22,7 @@ interface Setup { forceN: number; tempC: number; headD: number; t: number; clear
 
 function makeCase(s: Setup): CaseInput {
   const c = defaultCase();
+  c.creepSaturation = 'none';   // laboratory tests: no in vivo saturation
   c.bodyMassKg = 80;
   const bw = s.forceN / (c.bodyMassKg * G);
   c.peakForceBW = { nominal: bw, lo: bw, hi: bw };

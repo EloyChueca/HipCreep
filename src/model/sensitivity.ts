@@ -28,6 +28,7 @@ export const PARAM_LABEL: Record<ParamKey | 'law' | 'scenario' | 'leeLog' | 'kin
   eaKcal: 'Activation energy Ea',
   materialFactor: 'Material creep factor',
   r10k: 'Recovered fraction R₁₀ₖ',
+  satYears: 'In vivo creep saturation time',
   law: 'Creep law',
   scenario: 'Recovery scenario',
   leeLog: 'Lee laws beyond 10⁴ min',
@@ -79,6 +80,7 @@ export function sensitivity(mc: McResult, mode: Loading, output: 'remaining' | '
   for (const k of PARAM_KEYS) {
     if (k === 'cyclesPerYear' && mode === 'static') continue;   // no effect in static mode
     if (k === 'r10k' && output === 'creep') continue;
+    if (k === 'satYears' && !(inp.params.satYears.some((v) => v > 0))) continue;
     push(k, inp.params[k]);
   }
   if (mc.laws.length > 1) push('law', inp.lawIndex);

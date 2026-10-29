@@ -73,6 +73,34 @@ are still computed and shown as references (form: second checkbox of each law).
 * Conversion (Lee 2003): creep under a 1 Hz cycle with peak `p` ≈ static creep at `k·p`, `k = 0.61–0.70`
   (64 %, 70 %, 61 % at 2, 4, 8 MPa). A static law in dynamic mode sees `σ·k`; the dynamic law in static mode `σ/k`.
 
+### Long-term creep in vivo: clinical saturation (v0.12)
+
+The laboratory laws were measured over 10⁴ min (7 days), while the liners carry load for years. RSA studies show
+that in vivo the creep is practically complete within the first months: ≈ 95 % within 6 months and nearly all within
+the first year (Glyn-Jones 2008, 3-year RCT), stable after 3 months (Bergvinsson 2021, 10 years). By default the
+creep law is therefore run to an effective loading time
+
+```
+t_eff = t_s · (1 − e^(−T/t_s))
+```
+
+where `T` is the physical loading time (static: the time in vivo; dynamic: cycles / gait frequency) and `t_s` the
+loading time accumulated during the first `y_s` years in vivo (`y_s` U(0.5, 2) years, nominal 1). Early on
+`t_eff ≈ T` (the laboratory law is unchanged); for long implantation `t_eff → t_s` and the creep stops growing. With
+the Lee 2003 law in dynamic mode, 94 % of the 20-year creep is reached at 6 months (80 % with the laboratory law alone), as in the RSA data. The magnitude
+still comes from the laboratory law, the contact model and the material; only the time course is clinical (no data
+of the analysed liners are used). Option "Laboratory law only" restores the previous behaviour. For the 30 liners of
+the RV series the creep at explantation of liners implanted for more than ≈ 2 years is 10–17 % lower; liners
+implanted for less than a year are unchanged.
+
+### Inputs taken from HipWear: plausibility checks (v0.12)
+
+* A penetration direction more than 90° from the cup axis (beyond the cup face) is not used as the load axis of
+  the creep model (rim damage, subluxation or a two-sphere fit that followed the rim); the default load angle is
+  used and a warning is shown.
+* A wall thinner than 2 mm (back surface not separated from the bearing surface in HipWear) is ignored; the
+  default or manual thickness is used.
+
 ### Temperature
 
 Time–temperature superposition with an Arrhenius shift (Deng 1998): the creep at `T` during `t` equals the creep at

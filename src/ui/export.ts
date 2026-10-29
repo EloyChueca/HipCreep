@@ -137,7 +137,7 @@ export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: 
     ['Program', `HipCreep v${version}`], ['Created', new Date().toLocaleString()], ['Liners', res.length],
     ['Monte Carlo samples per liner', c.samples], ['Creep laws (Monte Carlo)', c.mcLaws.join(', ')],
     ['Recovery scenario', c.recoveryScenario === 'both' ? 'both (L&P and long loading, 50/50)' : c.recoveryScenario],
-    ['Activation energy (kcal/mol)', rng(c.eaKcal)], ['Reference radius', opt.refRadius], ['Rim band (°)', opt.rimBandDeg],
+    ['Activation energy (kcal/mol)', rng(c.eaKcal)], ['Long-term creep in vivo', c.creepSaturation === 'clinical' ? `saturates after ${rng(c.saturationYears)} years (clinical RSA)` : 'laboratory law only'], ['Reference radius', opt.refRadius], ['Rim band (°)', opt.rimBandDeg],
     [], ['Values in µm. p5–p95 = 90 % interval of the Monte Carlo. One row per liner and loading mode.'],
     [], ['Sheets'],
     ['Results', 'All results, one row per liner and loading mode (same columns as the CSV)'],
