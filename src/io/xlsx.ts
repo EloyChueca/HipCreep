@@ -5,10 +5,23 @@
 // values: numbers are stored as numbers, everything else as inline strings.
 // The ZIP container uses "stored" entries (no compression), which every
 // spreadsheet program reads. Optional: bold header row, frozen first row,
-// column widths.
+// column widths, formulas (with their cached value), PNG pictures and native
+// charts (DrawingML chart parts written by xlsxChart.ts).
 // ============================================================
 
-export type Cell = string | number | null | undefined;
+/** A formula (without the leading "=") and the value it gives, shown until the program recalculates */
+export interface FormulaCell { f: string; v: number | null }
+export type Cell = string | number | FormulaCell | null | undefined;
+
+/** A chart part placed on a sheet: top-left cell (0-based) and size in pixels */
+export interface SheetChart {
+  xml: string;
+  col: number;
+  row: number;
+  widthPx: number;
+  heightPx: number;
+  name?: string;
+}
 
 export interface Sheet {
   name: string;
@@ -21,6 +34,10 @@ export interface Sheet {
   boldRows?: number[];
   /** PNG pictures placed on the sheet: top-left cell (0-based) and size in pixels */
   images?: SheetImage[];
+  /** Native charts placed on the sheet */
+  charts?: SheetChart[];
+  /** Print on pages one sheet wide */
+  fitWidth?: boolean;
 }
 
 export interface SheetImage {
@@ -36,19 +53,19 @@ const EMU_PER_PX = 9525;
 
 const enc = new TextEncoder();
 
-const xmlEsc = (s: string) => s
+export const xmlEsc = (s: string) => s
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   // characters not allowed in XML 1.0
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
 
-function colName(i: number): string {
+export function colName(i: number): string {
   let s = '';
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
 }
 
 /** Sheet names: max 31 chars, no []:*?/\ and unique */
-function sheetNames(sheets: Sheet[]): string[] {
+export function sheetNames(sheets: Sheet[]): string[] {
   const used = new Set<string>();
   return sheets.map((s, i) => {
     let base = s.name.replace(/[[\]:*?/\\]/g, ' ').trim().slice(0, 31) || `Sheet${i + 1}`;
@@ -63,6 +80,7 @@ function sheetXml(s: Sheet): string {
   const out: string[] = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
     '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'];
   const bold = new Set(s.boldRows ?? []);
+  if (s.fitWidth) out.push('<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
   if (s.header && s.rows.length > 1) {
     out.push('<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>');
   }
@@ -76,17 +94,33 @@ function sheetXml(s: Sheet): string {
       const ref = `${colName(c)}${r + 1}`;
       if (v == null || v === '') return '';
       if (typeof v === 'number') return Number.isFinite(v) ? `<c r="${ref}"${style}><v>${v}</v></c>` : '';
+      if (typeof v === 'object') {
+        const val = v.v != null && Number.isFinite(v.v) ? `<v>${v.v}</v>` : '';
+        return `<c r="${ref}"${style}><f>${xmlEsc(v.f)}</f>${val}</c>`;
+      }
       return `<c r="${ref}" t="inlineStr"${style}><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
     }).join('');
     out.push(`<row r="${r + 1}">${cells}</row>`);
   });
   out.push('</sheetData>');
-  if (s.images?.length) out.push('<drawing r:id="rId1"/>');
+  if (s.fitWidth) out.push('<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>');
+  if (s.images?.length || s.charts?.length) out.push('<drawing r:id="rId1"/>');
   out.push('</worksheet>');
   return out.join('');
 }
 
-function drawingXml(images: SheetImage[]): string {
+/** Pictures use relationship ids rId1…rIdN, charts continue after them */
+function drawingXml(images: SheetImage[], charts: SheetChart[]): string {
+  const frames = charts.map((ch, k) => {
+    const cx = Math.round(ch.widthPx * EMU_PER_PX), cy = Math.round(ch.heightPx * EMU_PER_PX);
+    return '<xdr:oneCellAnchor>'
+      + `<xdr:from><xdr:col>${ch.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${ch.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>`
+      + `<xdr:ext cx="${cx}" cy="${cy}"/>`
+      + `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${images.length + k + 2}" name="${xmlEsc(ch.name ?? `Chart ${k + 1}`)}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>`
+      + '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'
+      + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rId${images.length + k + 1}"/></a:graphicData></a:graphic>`
+      + '</xdr:graphicFrame><xdr:clientData/></xdr:oneCellAnchor>';
+  }).join('');
   const pics = images.map((im, i) => {
     const cx = Math.round(im.widthPx * EMU_PER_PX), cy = Math.round(im.heightPx * EMU_PER_PX);
     return '<xdr:oneCellAnchor>'
@@ -99,7 +133,7 @@ function drawingXml(images: SheetImage[]): string {
   }).join('');
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-    + pics + '</xdr:wsDr>';
+    + pics + frames + '</xdr:wsDr>';
 }
 
 // ---------- ZIP (stored) ----------
@@ -166,7 +200,8 @@ export function writeXlsx(sheets: Sheet[]): Uint8Array {
     + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
     + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
     + sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
-    + sheets.map((s, i) => s.images?.length ? `<Override PartName="/xl/drawings/drawing${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` : '').join('')
+    + sheets.map((s, i) => s.images?.length || s.charts?.length ? `<Override PartName="/xl/drawings/drawing${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` : '').join('')
+    + Array.from({ length: sheets.reduce((a, s) => a + (s.charts?.length ?? 0), 0) }, (_, k) => `<Override PartName="/xl/charts/chart${k + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`).join('')
     + '</Types>');
   add('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
@@ -175,7 +210,7 @@ export function writeXlsx(sheets: Sheet[]): Uint8Array {
   add('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
     + names.map((n, i) => `<sheet name="${xmlEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')
-    + '</sheets></workbook>');
+    + '</sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>');
   add('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
     + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')
@@ -190,19 +225,24 @@ export function writeXlsx(sheets: Sheet[]): Uint8Array {
     + '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
     + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
     + '</styleSheet>');
-  let media = 0;
+  let media = 0, chartNo = 0;
   const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
   sheets.forEach((s, i) => {
     add(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s));
-    if (!s.images?.length) return;
+    const images = s.images ?? [], charts = s.charts ?? [];
+    if (!images.length && !charts.length) return;
     add(`xl/worksheets/_rels/sheet${i + 1}.xml.rels`, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
       + `<Relationship Id="rId1" Type="${REL}/drawing" Target="../drawings/drawing${i + 1}.xml"/></Relationships>`);
-    add(`xl/drawings/drawing${i + 1}.xml`, drawingXml(s.images));
-    const rels = s.images.map((im, k) => {
+    add(`xl/drawings/drawing${i + 1}.xml`, drawingXml(images, charts));
+    const rels = images.map((im, k) => {
       const name = `image${++media}.png`;
       files.push({ name: `xl/media/${name}`, data: im.png });
       return `<Relationship Id="rId${k + 1}" Type="${REL}/image" Target="../media/${name}"/>`;
+    }).join('') + charts.map((ch, k) => {
+      const name = `chart${++chartNo}.xml`;
+      add(`xl/charts/${name}`, ch.xml);
+      return `<Relationship Id="rId${images.length + k + 1}" Type="${REL}/chart" Target="../charts/${name}"/>`;
     }).join('');
     add(`xl/drawings/_rels/drawing${i + 1}.xml.rels`, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`);

@@ -10,13 +10,13 @@ import { makePhantom } from './io/phantom.ts';
 import { caseFromLoaded, seriesCsv, type SeriesResult } from './model/series.ts';
 import { computeMonteCarlo, computeSeriesCase } from './compute/client.ts';
 import { yieldTask } from './compute/yield.ts';
-import { renderSeriesSetup, renderSeriesResults, seriesChartImages, type SeriesItem, type SeriesCallbacks } from './ui/series.ts';
+import { renderSeriesSetup, renderSeriesResults, type SeriesItem, type SeriesCallbacks } from './ui/series.ts';
 import { buildForm, writeForm, readForm, syncEnabled, showMaterialPreset, defaultUi, type UiSettings } from './ui/form.ts';
 import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson, seriesXlsx } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.9.0';
+const VERSION = '0.10.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -154,16 +154,11 @@ async function runSeries(items: SeriesItem[]): Promise<void> {
     const res = seriesResults;
     const settings = { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg };
     const caseNow = caseInput;
-    const saveXlsx = async () => {
-      // charts as on the page (title, explanation, legend); the Excel file is still written if they fail
-      let charts: Awaited<ReturnType<typeof seriesChartImages>> = [];
-      try { charts = await seriesChartImages(res); } catch (e) { console.error('charts for Excel', e); }
-      download(xlsxName, seriesXlsx(res, caseNow, settings, VERSION, charts));
-    };
-    renderSeriesResults(root, items, res, seriesCb, () => download('hipcreep-series.csv', seriesCsv(res), 'text/csv'), () => void saveXlsx());
+    const saveXlsx = () => download(xlsxName, seriesXlsx(res, caseNow, settings, VERSION));
+    renderSeriesResults(root, items, res, seriesCb, () => download('hipcreep-series.csv', seriesCsv(res), 'text/csv'), saveXlsx);
     // Excel file with the results, downloaded automatically at the end of the series
     let xlsxNote = `Excel file downloaded: ${xlsxName}`;
-    try { await saveXlsx(); } catch (e) { console.error(e); xlsxNote = `Excel file could not be created (${(e as Error).message}); use the Series (Excel) button`; }
+    try { saveXlsx(); } catch (e) { console.error(e); xlsxNote = `Excel file could not be created (${(e as Error).message}); use the Series (Excel) button`; }
     const st = document.getElementById('s-status');
     if (st) st.textContent = `Done: ${items.length} liners in ${((performance.now() - t0) / 1000).toFixed(1)} s. ${xlsxNote}.`;
     $('run-status').textContent = `Series done: ${items.length} liners. ${xlsxNote}.`;

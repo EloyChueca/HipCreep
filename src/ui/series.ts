@@ -8,7 +8,6 @@ import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import { MATERIALS, MATERIAL_IDS, THERMAL_LABEL, type MaterialId, type Irradiation, type ThermalTreatment } from '../model/materials.ts';
 import type { SeriesResult, ElevationStatus } from '../model/series.ts';
 import { fmt, escapeHtml, cssVar } from './format.ts';
-import { snapshotCard, rasterize, type ChartSnapshot, type ChartImage } from './chartImage.ts';
 import { svg, add, niceTicks, showTip, hideTip } from './charts.ts';
 
 export interface SeriesItem {
@@ -153,27 +152,6 @@ export function seriesChartCards(res: SeriesResult[]): HTMLElement[] {
     cards.push(c2);
   }
   return cards;
-}
-
-/** The series charts as PNG images with their labels, drawn in the light theme (for the Excel file) */
-export async function seriesChartImages(res: SeriesResult[]): Promise<ChartImage[]> {
-  const root = document.documentElement;
-  const prev = root.getAttribute('data-theme');
-  const host = document.createElement('div');
-  host.style.cssText = 'position:fixed;left:-20000px;top:0;width:900px;visibility:hidden;pointer-events:none';
-  let snaps: ChartSnapshot[];
-  // Switch to the light theme only while the charts are drawn and read (synchronous: nothing is painted)
-  root.setAttribute('data-theme', 'light');
-  try {
-    document.body.appendChild(host);
-    const cards = seriesChartCards(res);
-    for (const c of cards) host.appendChild(c);
-    snaps = cards.map(snapshotCard);
-  } finally {
-    host.remove();
-    if (prev === null) root.removeAttribute('data-theme'); else root.setAttribute('data-theme', prev);
-  }
-  return Promise.all(snaps.map((sn) => rasterize(sn)));
 }
 
 function perLinerChart(container: HTMLElement, res: SeriesResult[]): void {

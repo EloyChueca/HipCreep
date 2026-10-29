@@ -6,8 +6,8 @@ import type { ReportData } from './report.ts';
 import { LAWS } from '../model/laws.ts';
 import { MODES } from '../model/analysis.ts';
 import type { Stats } from '../model/stats.ts';
-import { writeXlsx, XLSX_MIME, type Sheet, type SheetImage } from '../io/xlsx.ts';
-import type { ChartImage } from './chartImage.ts';
+import { writeXlsx, XLSX_MIME, type Sheet } from '../io/xlsx.ts';
+import { seriesChartSheets } from './excelCharts.ts';
 import { SERIES_COLUMNS, seriesTable, type SeriesResult } from '../model/series.ts';
 import type { CaseInput } from '../model/case.ts';
 
@@ -128,8 +128,8 @@ const COLUMN_NOTES: Record<string, string> = {
 
 const rng = (r: { nominal: number; lo: number; hi: number }) => `${r.nominal} (${r.lo}–${r.hi})`;
 
-/** Workbook with the series results, the run settings and the file warnings */
-export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: string; rimBandDeg: number }, version: string, charts: ChartImage[] = []): Blob {
+/** Workbook with the series results, editable charts, the run settings and the file warnings */
+export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: string; rimBandDeg: number }, version: string): Blob {
   const widths = SERIES_COLUMNS.map((h, j) => (j === 1 ? 28 : j === 2 ? 34 : j === 33 ? 40 : Math.max(9, h.length + 2)));
   const sheets: Sheet[] = [{ name: 'Results', header: true, widths, rows: [[...SERIES_COLUMNS], ...seriesTable(res)] }];
   const info: (string | number | null)[][] = [
@@ -138,21 +138,17 @@ export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: 
     ['Monte Carlo samples per liner', c.samples], ['Creep laws (Monte Carlo)', c.mcLaws.join(', ')],
     ['Recovery scenario', c.recoveryScenario === 'both' ? 'both (L&P and long loading, 50/50)' : c.recoveryScenario],
     ['Activation energy (kcal/mol)', rng(c.eaKcal)], ['Reference radius', opt.refRadius], ['Rim band (°)', opt.rimBandDeg],
-    [], ['Values in µm. p5–p95 = 90 % interval of the Monte Carlo. One row per liner and loading mode.'], [],
+    [], ['Values in µm. p5–p95 = 90 % interval of the Monte Carlo. One row per liner and loading mode.'],
+    [], ['Sheets'],
+    ['Results', 'All results, one row per liner and loading mode (same columns as the CSV)'],
+    ['Dynamic / Static', 'Editable charts for each loading mode: remaining creep per liner (both recovery scenarios, 90 % intervals, measured D ± 2 SD, detection limit, elevation bound) and wear vs years in vivo'],
+    ['Comparison', 'Editable charts, dynamic vs static: remaining creep per liner and wear vs years in vivo'],
+    ['Chart data', 'The cells the charts point at; error-bar lengths are formulas on the percentile cells, so editing a value updates the charts'],
+    [],
     ['Column', 'Meaning'], ...SERIES_COLUMNS.map((h) => [h, COLUMN_NOTES[h] ?? '']),
   ];
-  if (charts.length) {
-    // One chart under the other; each picture carries its title, explanation and legend
-    const rows: (string | number | null)[][] = [['HipCreep series charts (dynamic mode); the numbers are in the Results sheet']];
-    const boldRows: number[] = [0];
-    const images: SheetImage[] = [];
-    let r = 2;
-    for (const ch of charts) {
-      images.push({ png: ch.png, col: 0, row: r, widthPx: ch.width, heightPx: ch.height, name: ch.title });
-      r += Math.ceil(ch.height / 15) + 2;     // rows are 17–20 px (LibreOffice / Excel): leave a margin
-    }
-    sheets.push({ name: 'Charts', rows, boldRows, images });
-  }
+  // editable charts (Dynamic / Static / Comparison) and the cells they point at
+  sheets.push(...seriesChartSheets(res));
   sheets.push({ name: 'Info', widths: [30, 90], rows: info });
   const warn = res.flatMap((r) => r.warnings.map((w) => [r.caseId, r.file, w]));
   if (warn.length) sheets.push({ name: 'Warnings', header: true, widths: [16, 30, 100], rows: [['case', 'file', 'warning'], ...warn] });

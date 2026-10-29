@@ -306,3 +306,27 @@ test('xlsx writer: pictures go in a drawing linked from the sheet', () => {
   for (const part of ['xl/media/image1.png', 'xl/drawings/drawing1.xml', 'xl/drawings/_rels/drawing1.xml.rels', 'xl/worksheets/_rels/sheet1.xml.rels', '<drawing r:id="rId1"/>', 'cx="952500"'])
     assert.ok(txt.includes(part), part);
 });
+
+// ---------- v0.10: editable Excel charts ----------
+import { chartXml } from '../src/io/xlsxChart.ts';
+import { seriesChartSheets } from '../src/ui/excelCharts.ts';
+
+test('excel charts: chart parts, references to the data sheet and liner labels', async () => {
+  const L = parseHipWearInput(JSON.stringify(makePhantom()), 'p.json');
+  const base = defaultCase(); base.samples = 60;
+  const r = await runSeriesCase(caseFromLoaded(base, L), L, { refRadius: 'measured', rimBandDeg: 2 });
+  const sheets = seriesChartSheets([r, { ...r, caseId: 'RV-H032' }]);
+  assert.deepEqual(sheets.map((s) => s.name), ['Dynamic', 'Static', 'Comparison', 'Chart data']);
+  for (const s of sheets.slice(0, 3)) assert.equal(s.charts!.length, 2);
+  const xml = sheets[0].charts![0].xml;
+  assert.ok(xml.includes("'Chart data'!$A$2:$A$3"));            // liner names as categories
+  assert.ok(xml.includes('<c:errValType val="cust"/>'));
+  assert.ok(sheets[0].charts![1].xml.includes('<a:t>RV-H032</a:t>'));   // point label
+  const data = sheets[3].rows;
+  assert.equal(data.length, 3);
+  assert.ok(data[1].some((c) => typeof c === 'object' && c !== null && 'f' in c));   // formulas
+  const b = writeXlsx(sheets);
+  const txt = new TextDecoder().decode(b);
+  assert.ok(txt.includes('xl/charts/chart6.xml') && txt.includes('drawingml.chart+xml'));
+  assert.ok(chartXml({ title: 't', layout: 'scatter', series: [] }).startsWith('<?xml'));
+});
