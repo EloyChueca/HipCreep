@@ -8,6 +8,10 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
   },
+  // The computation worker is an ES module (new Worker(…, { type: 'module' }))
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 5174,
     open: true,

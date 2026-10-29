@@ -8,6 +8,7 @@ import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import { MATERIALS, MATERIAL_IDS, THERMAL_LABEL, type MaterialId, type Irradiation, type ThermalTreatment } from '../model/materials.ts';
 import type { SeriesResult, ElevationStatus } from '../model/series.ts';
 import { fmt, escapeHtml, cssVar } from './format.ts';
+import { snapshotCard, rasterize, type ChartSnapshot, type ChartImage } from './chartImage.ts';
 import { svg, add, niceTicks, showTip, hideTip } from './charts.ts';
 
 export interface SeriesItem {
@@ -117,6 +118,18 @@ export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res:
     <tbody>${body}</tbody></table></div>`);
   sec.querySelectorAll('.s-open').forEach((b) => b.addEventListener('click', () => cb.onOpen(items[+(b as HTMLElement).dataset.i!])));
 
+  for (const card of seriesChartCards(res)) sec.appendChild(card);
+
+  sec.insertAdjacentHTML('beforeend', `<div class="export-row" style="margin-top:12px"><button class="btn primary" id="s-xlsx">Series (Excel)</button><button class="btn" id="s-csv">Series (CSV)</button><button class="btn" id="s-back">Edit series</button></div>`);
+  (sec.querySelector('#s-csv') as HTMLButtonElement).addEventListener('click', csv);
+  const bx = sec.querySelector('#s-xlsx') as HTMLButtonElement;
+  if (xlsx) bx.addEventListener('click', xlsx); else bx.remove();
+  (sec.querySelector('#s-back') as HTMLButtonElement).addEventListener('click', () => renderSeriesSetup(root, items, cb));
+}
+
+/** The series charts (title, explanation, legend and SVG), as on the page */
+export function seriesChartCards(res: SeriesResult[]): HTMLElement[] {
+  const cards: HTMLElement[] = [];
   // ---- chart: each liner, measured D vs remaining creep in both scenarios + elevation bound ----
   const card = document.createElement('div');
   card.className = 'chart-card';
@@ -124,8 +137,8 @@ export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res:
   card.innerHTML = `<div class="chart-title">Measured penetration vs remaining creep, per liner (dynamic)</div>
     <div class="chart-sub">Bars: 90 % interval of the remaining creep (dot = median). Diamond: measured D ± 2 SD (open box: not detected, below the detection limit). Triangle: minimum creep from the elevations. Wear is the gap between D and the remaining creep.</div>
     <div class="legend"><span class="item"><span class="swatch" style="background:${cssVar('--series-1')}"></span>Remaining creep, L&amp;P</span><span class="item"><span class="swatch" style="background:${cssVar('--series-2')}"></span>Remaining creep, long loading</span><span class="item">◆ measured D</span><span class="item">▲ elevation bound</span></div>`;
-  sec.appendChild(card);
   perLinerChart(card, res);
+  cards.push(card);
 
   // ---- chart: wear vs years by material ----
   if (res.some((r) => r.modes.dynamic.wear)) {
@@ -136,14 +149,31 @@ export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res:
     c2.innerHTML = `<div class="chart-title">Estimated wear vs time in vivo (dynamic)</div>
       <div class="chart-sub">Vertical segment: from the long-loading to the L&amp;P median (the recovery uncertainty); dot: envelope median. Colour = polyethylene.</div>
       <div class="legend">${mats.map(([lab, m]) => `<span class="item"><span class="swatch" style="background:${cssVar(MAT_COLOR[m])}"></span>${escapeHtml(lab.split(',')[0])}</span>`).join('')}</div>`;
-    sec.appendChild(c2);
     wearVsYears(c2, res);
+    cards.push(c2);
   }
-  sec.insertAdjacentHTML('beforeend', `<div class="export-row" style="margin-top:12px"><button class="btn primary" id="s-xlsx">Series (Excel)</button><button class="btn" id="s-csv">Series (CSV)</button><button class="btn" id="s-back">Edit series</button></div>`);
-  (sec.querySelector('#s-csv') as HTMLButtonElement).addEventListener('click', csv);
-  const bx = sec.querySelector('#s-xlsx') as HTMLButtonElement;
-  if (xlsx) bx.addEventListener('click', xlsx); else bx.remove();
-  (sec.querySelector('#s-back') as HTMLButtonElement).addEventListener('click', () => renderSeriesSetup(root, items, cb));
+  return cards;
+}
+
+/** The series charts as PNG images with their labels, drawn in the light theme (for the Excel file) */
+export async function seriesChartImages(res: SeriesResult[]): Promise<ChartImage[]> {
+  const root = document.documentElement;
+  const prev = root.getAttribute('data-theme');
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-20000px;top:0;width:900px;visibility:hidden;pointer-events:none';
+  let snaps: ChartSnapshot[];
+  // Switch to the light theme only while the charts are drawn and read (synchronous: nothing is painted)
+  root.setAttribute('data-theme', 'light');
+  try {
+    document.body.appendChild(host);
+    const cards = seriesChartCards(res);
+    for (const c of cards) host.appendChild(c);
+    snaps = cards.map(snapshotCard);
+  } finally {
+    host.remove();
+    if (prev === null) root.removeAttribute('data-theme'); else root.setAttribute('data-theme', prev);
+  }
+  return Promise.all(snaps.map((sn) => rasterize(sn)));
 }
 
 function perLinerChart(container: HTMLElement, res: SeriesResult[]): void {

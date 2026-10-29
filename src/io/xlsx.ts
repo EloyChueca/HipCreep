@@ -17,7 +17,22 @@ export interface Sheet {
   header?: boolean;
   /** Column widths in characters */
   widths?: number[];
+  /** Rows (0-based) written in bold */
+  boldRows?: number[];
+  /** PNG pictures placed on the sheet: top-left cell (0-based) and size in pixels */
+  images?: SheetImage[];
 }
+
+export interface SheetImage {
+  png: Uint8Array;
+  col: number;
+  row: number;
+  widthPx: number;
+  heightPx: number;
+  name?: string;
+}
+
+const EMU_PER_PX = 9525;
 
 const enc = new TextEncoder();
 
@@ -46,7 +61,8 @@ function sheetNames(sheets: Sheet[]): string[] {
 
 function sheetXml(s: Sheet): string {
   const out: string[] = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'];
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'];
+  const bold = new Set(s.boldRows ?? []);
   if (s.header && s.rows.length > 1) {
     out.push('<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>');
   }
@@ -55,7 +71,7 @@ function sheetXml(s: Sheet): string {
   }
   out.push('<sheetData>');
   s.rows.forEach((row, r) => {
-    const style = s.header && r === 0 ? ' s="1"' : '';
+    const style = (s.header && r === 0) || bold.has(r) ? ' s="1"' : '';
     const cells = row.map((v, c) => {
       const ref = `${colName(c)}${r + 1}`;
       if (v == null || v === '') return '';
@@ -64,8 +80,26 @@ function sheetXml(s: Sheet): string {
     }).join('');
     out.push(`<row r="${r + 1}">${cells}</row>`);
   });
-  out.push('</sheetData></worksheet>');
+  out.push('</sheetData>');
+  if (s.images?.length) out.push('<drawing r:id="rId1"/>');
+  out.push('</worksheet>');
   return out.join('');
+}
+
+function drawingXml(images: SheetImage[]): string {
+  const pics = images.map((im, i) => {
+    const cx = Math.round(im.widthPx * EMU_PER_PX), cy = Math.round(im.heightPx * EMU_PER_PX);
+    return '<xdr:oneCellAnchor>'
+      + `<xdr:from><xdr:col>${im.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${im.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>`
+      + `<xdr:ext cx="${cx}" cy="${cy}"/>`
+      + `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${i + 2}" name="${xmlEsc(im.name ?? `Picture ${i + 1}`)}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>`
+      + `<xdr:blipFill><a:blip r:embed="rId${i + 1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>`
+      + `<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>`
+      + '<xdr:clientData/></xdr:oneCellAnchor>';
+  }).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    + pics + '</xdr:wsDr>';
 }
 
 // ---------- ZIP (stored) ----------
@@ -128,9 +162,11 @@ export function writeXlsx(sheets: Sheet[]): Uint8Array {
     + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
     + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
     + '<Default Extension="xml" ContentType="application/xml"/>'
+    + '<Default Extension="png" ContentType="image/png"/>'
     + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
     + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
     + sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
+    + sheets.map((s, i) => s.images?.length ? `<Override PartName="/xl/drawings/drawing${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` : '').join('')
     + '</Types>');
   add('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
@@ -154,7 +190,23 @@ export function writeXlsx(sheets: Sheet[]): Uint8Array {
     + '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
     + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
     + '</styleSheet>');
-  sheets.forEach((s, i) => add(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s)));
+  let media = 0;
+  const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  sheets.forEach((s, i) => {
+    add(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s));
+    if (!s.images?.length) return;
+    add(`xl/worksheets/_rels/sheet${i + 1}.xml.rels`, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + `<Relationship Id="rId1" Type="${REL}/drawing" Target="../drawings/drawing${i + 1}.xml"/></Relationships>`);
+    add(`xl/drawings/drawing${i + 1}.xml`, drawingXml(s.images));
+    const rels = s.images.map((im, k) => {
+      const name = `image${++media}.png`;
+      files.push({ name: `xl/media/${name}`, data: im.png });
+      return `<Relationship Id="rId${k + 1}" Type="${REL}/image" Target="../media/${name}"/>`;
+    }).join('');
+    add(`xl/drawings/_rels/drawing${i + 1}.xml.rels`, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`);
+  });
   return zipStored(files);
 }
 

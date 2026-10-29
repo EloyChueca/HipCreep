@@ -3,18 +3,20 @@
 // ============================================================
 
 import { defaultCase, type CaseInput } from './model/case.ts';
-import { runDeterministic, runMonteCarlo } from './model/analysis.ts';
+import { runDeterministic } from './model/analysis.ts';
 import { analyseSurface, elevationAnalysis, type SurfaceData, type ElevationResult } from './model/surface.ts';
 import { parseHipWearInput, type LoadedHipWearCase } from './io/hipwear.ts';
 import { makePhantom } from './io/phantom.ts';
-import { caseFromLoaded, runSeriesCase, seriesCsv, type SeriesResult } from './model/series.ts';
-import { renderSeriesSetup, renderSeriesResults, type SeriesItem, type SeriesCallbacks } from './ui/series.ts';
+import { caseFromLoaded, seriesCsv, type SeriesResult } from './model/series.ts';
+import { computeMonteCarlo, computeSeriesCase } from './compute/client.ts';
+import { yieldTask } from './compute/yield.ts';
+import { renderSeriesSetup, renderSeriesResults, seriesChartImages, type SeriesItem, type SeriesCallbacks } from './ui/series.ts';
 import { buildForm, writeForm, readForm, syncEnabled, showMaterialPreset, defaultUi, type UiSettings } from './ui/form.ts';
 import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson, seriesXlsx } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.8.0';
+const VERSION = '0.9.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -138,10 +140,10 @@ async function runSeries(items: SeriesItem[]): Promise<void> {
       const it = items[i];
       if (status) status.textContent = `Liner ${i + 1} of ${items.length}: ${it.L.caseId}…`;
       if (bar) bar.style.width = `${(100 * i / items.length).toFixed(1)}%`;
-      await new Promise((res) => setTimeout(res, 10));
+      await yieldTask();
       const c = caseFromLoaded(caseInput, it.L);
       c.bodyMassKg = it.bodyMassKg; c.material = it.material; c.irradiation = { ...it.irradiation }; c.exVivoDays = it.exVivoDays; c.implantMonths = it.implantMonths;
-      seriesResults.push(await runSeriesCase(c, it.L, { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg }));
+      seriesResults.push(await computeSeriesCase(c, it.L, { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg }));
     }
     if (bar) bar.style.width = '100%';
     const root = $('report');
@@ -151,11 +153,17 @@ async function runSeries(items: SeriesItem[]): Promise<void> {
     const xlsxName = `hipcreep-series-${stamp}.xlsx`;
     const res = seriesResults;
     const settings = { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg };
-    const saveXlsx = () => download(xlsxName, seriesXlsx(res, caseInput, settings, VERSION));
-    renderSeriesResults(root, items, res, seriesCb, () => download('hipcreep-series.csv', seriesCsv(res), 'text/csv'), saveXlsx);
+    const caseNow = caseInput;
+    const saveXlsx = async () => {
+      // charts as on the page (title, explanation, legend); the Excel file is still written if they fail
+      let charts: Awaited<ReturnType<typeof seriesChartImages>> = [];
+      try { charts = await seriesChartImages(res); } catch (e) { console.error('charts for Excel', e); }
+      download(xlsxName, seriesXlsx(res, caseNow, settings, VERSION, charts));
+    };
+    renderSeriesResults(root, items, res, seriesCb, () => download('hipcreep-series.csv', seriesCsv(res), 'text/csv'), () => void saveXlsx());
     // Excel file with the results, downloaded automatically at the end of the series
     let xlsxNote = `Excel file downloaded: ${xlsxName}`;
-    try { saveXlsx(); } catch (e) { console.error(e); xlsxNote = `Excel file could not be created (${(e as Error).message}); use the Series (Excel) button`; }
+    try { await saveXlsx(); } catch (e) { console.error(e); xlsxNote = `Excel file could not be created (${(e as Error).message}); use the Series (Excel) button`; }
     const st = document.getElementById('s-status');
     if (st) st.textContent = `Done: ${items.length} liners in ${((performance.now() - t0) / 1000).toFixed(1)} s. ${xlsxNote}.`;
     $('run-status').textContent = `Series done: ${items.length} liners. ${xlsxNote}.`;
@@ -228,10 +236,10 @@ async function run(): Promise<void> {
     ui = r.ui;
     status.textContent = 'Deterministic table…';
     bar.style.width = '2%';
-    await new Promise((res) => setTimeout(res, 10));
+    await yieldTask();
     const det = runDeterministic(caseInput);
     status.textContent = 'Monte Carlo…';
-    const mc = await runMonteCarlo(caseInput, (f) => { bar.style.width = `${(2 + 93 * f).toFixed(1)}%`; });
+    const mc = await computeMonteCarlo(caseInput, (f) => { bar.style.width = `${(2 + 93 * f).toFixed(1)}%`; });
     const surf = loaded ? surfaceFor(loaded, ui) : null;
     bar.style.width = '100%';
     lastReport = { c: caseInput, ui, det, mc, loaded, surface: surf?.surface ?? null, elevation: surf?.elevation ?? null };

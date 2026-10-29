@@ -6,7 +6,8 @@ import type { ReportData } from './report.ts';
 import { LAWS } from '../model/laws.ts';
 import { MODES } from '../model/analysis.ts';
 import type { Stats } from '../model/stats.ts';
-import { writeXlsx, XLSX_MIME, type Sheet } from '../io/xlsx.ts';
+import { writeXlsx, XLSX_MIME, type Sheet, type SheetImage } from '../io/xlsx.ts';
+import type { ChartImage } from './chartImage.ts';
 import { SERIES_COLUMNS, seriesTable, type SeriesResult } from '../model/series.ts';
 import type { CaseInput } from '../model/case.ts';
 
@@ -128,7 +129,7 @@ const COLUMN_NOTES: Record<string, string> = {
 const rng = (r: { nominal: number; lo: number; hi: number }) => `${r.nominal} (${r.lo}–${r.hi})`;
 
 /** Workbook with the series results, the run settings and the file warnings */
-export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: string; rimBandDeg: number }, version: string): Blob {
+export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: string; rimBandDeg: number }, version: string, charts: ChartImage[] = []): Blob {
   const widths = SERIES_COLUMNS.map((h, j) => (j === 1 ? 28 : j === 2 ? 34 : j === 33 ? 40 : Math.max(9, h.length + 2)));
   const sheets: Sheet[] = [{ name: 'Results', header: true, widths, rows: [[...SERIES_COLUMNS], ...seriesTable(res)] }];
   const info: (string | number | null)[][] = [
@@ -140,6 +141,18 @@ export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: 
     [], ['Values in µm. p5–p95 = 90 % interval of the Monte Carlo. One row per liner and loading mode.'], [],
     ['Column', 'Meaning'], ...SERIES_COLUMNS.map((h) => [h, COLUMN_NOTES[h] ?? '']),
   ];
+  if (charts.length) {
+    // One chart under the other; each picture carries its title, explanation and legend
+    const rows: (string | number | null)[][] = [['HipCreep series charts (dynamic mode); the numbers are in the Results sheet']];
+    const boldRows: number[] = [0];
+    const images: SheetImage[] = [];
+    let r = 2;
+    for (const ch of charts) {
+      images.push({ png: ch.png, col: 0, row: r, widthPx: ch.width, heightPx: ch.height, name: ch.title });
+      r += Math.ceil(ch.height / 15) + 2;     // rows are 17–20 px (LibreOffice / Excel): leave a margin
+    }
+    sheets.push({ name: 'Charts', rows, boldRows, images });
+  }
   sheets.push({ name: 'Info', widths: [30, 90], rows: info });
   const warn = res.flatMap((r) => r.warnings.map((w) => [r.caseId, r.file, w]));
   if (warn.length) sheets.push({ name: 'Warnings', header: true, widths: [16, 30, 100], rows: [['case', 'file', 'warning'], ...warn] });

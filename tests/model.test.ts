@@ -298,3 +298,11 @@ test('series table: one row per mode with all columns, numbers as numbers', asyn
   for (const row of t) assert.equal(row.length, SERIES_COLUMNS.length);
   assert.equal(typeof t[0][SERIES_COLUMNS.indexOf('Cmax_p50')], 'number');
 });
+
+test('xlsx writer: pictures go in a drawing linked from the sheet', () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const b = writeXlsx([{ name: 'Charts', rows: [['t']], images: [{ png, col: 0, row: 2, widthPx: 100, heightPx: 50 }] }]);
+  const txt = new TextDecoder().decode(b);
+  for (const part of ['xl/media/image1.png', 'xl/drawings/drawing1.xml', 'xl/drawings/_rels/drawing1.xml.rels', 'xl/worksheets/_rels/sheet1.xml.rels', '<drawing r:id="rId1"/>', 'cx="952500"'])
+    assert.ok(txt.includes(part), part);
+});

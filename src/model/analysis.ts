@@ -7,6 +7,7 @@
 //   creep, recovery, and (with a HipWear measurement) the wear / creep split.
 // ============================================================
 
+import { yieldTask } from '../compute/yield.ts';
 import { G, DAYS_PER_MONTH, SECONDS_PER_DAY, SECONDS_PER_YEAR } from './constants.ts';
 import { LAWS, type LawId, type Loading, type LawOptions } from './laws.ts';
 import { materialPreset, type Range } from './materials.ts';
@@ -297,7 +298,7 @@ export async function runMonteCarlo(
     }
     if ((s + 1) % CHUNK === 0) {
       onProgress?.((s + 1) / n);
-      await new Promise((r) => setTimeout(r, 0));
+      await yieldTask();
       if (signal?.cancelled) throw new Error('cancelled');
     }
   }
