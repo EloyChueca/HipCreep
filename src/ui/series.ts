@@ -100,6 +100,7 @@ const ELEV_TXT: Record<ElevationStatus, string> = { consistent: '✓', 'median-b
 /** Results of the whole series: one section per loading mode (independent Monte Carlo), then the comparisons */
 export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res: SeriesResult[], cb: SeriesCallbacks, csv: () => void, xlsx?: () => void): void {
   for (const mode of ['dynamic', 'static'] as Loading[]) renderModeSection(root, items, res, cb, mode);
+  renderElevatedZone(root, res);
   renderModeComparison(root, res);
   const sec = renderWearScenarios(root, res);
   sec.insertAdjacentHTML('beforeend', `<div class="export-row" style="margin-top:12px"><button class="btn primary" id="s-xlsx">Series (Excel)</button><button class="btn" id="s-csv">Series (CSV)</button><button class="btn" id="s-back">Edit series</button></div>`);
@@ -133,6 +134,22 @@ function renderModeSection(root: HTMLElement, items: SeriesItem[], res: SeriesRe
     <tbody>${body}</tbody></table></div>`);
   sec.querySelectorAll('.s-open').forEach((b) => b.addEventListener('click', () => cb.onOpen(items[+(b as HTMLElement).dataset.i!])));
   for (const card of seriesChartCards(res, mode)) sec.appendChild(card);
+}
+
+/** Measured elevated zone of each liner (no model) */
+function renderElevatedZone(root: HTMLElement, res: SeriesResult[]): void {
+  if (!res.some((r) => r.elevatedZone)) return;
+  const sec = section(root, 'Elevated zone — as measured',
+    'Material above the original sphere, counted directly on the HipWear surface (no creep or wear model; rim band excluded). Wear cannot create elevations and creep conserves volume, so the elevated volume is the minimum creep volume as measured. <b>Above noise</b>: only the part beyond 2σ of the scanner noise, minus what noise alone would give. <b>Highest point</b>: largest elevation; the mean of the highest 1 mm² is less sensitive to a single noisy point.');
+  const body = res.map((r, i) => {
+    const z = r.elevatedZone;
+    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td>${z
+      ? `<td>${fmt(z.areaMm2)}</td><td><b>${fmt(z.volumeMm3, 3)}</b></td><td>${fmt(z.volumeAboveNoiseMm3, 3)}</td><td><b>${fmt(z.peakUm)}</b></td><td>${fmt(z.peak1mm2Um)}</td><td>${fmt(z.peakThetaDeg)}°</td><td>${fmt(z.sigmaUm)}</td>`
+      : '<td colspan="7">no surface in the file</td>'}</tr>`;
+  }).join('');
+  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
+    <thead><tr><th>#</th><th>Case</th><th>Elevated area (mm²)</th><th>Elevated volume (mm³)</th><th>Above noise (mm³)</th><th>Highest point (µm)</th><th>Highest 1 mm² (µm)</th><th>Angle from pole</th><th>Noise σ (µm)</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`);
 }
 
 /** Dynamic vs static, liner by liner */

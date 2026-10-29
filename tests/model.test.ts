@@ -353,3 +353,12 @@ test('Monte Carlo: dynamic and static are independent simulations', async () => 
   assert.equal(mc.modes.dynamic.creepUm.length, 50);
   assert.equal(mc.modes.static.creepUm.length, 50);
 });
+
+test('elevated zone: phantom volume close to the truth, peak above it by the noise', () => {
+  const p: any = makePhantom();
+  const L = parseHipWearInput(JSON.stringify(p), 'p.json');
+  const s = analyseSurface(L.mesh!, { center: L.measuredCenter ?? L.center, radiusMm: L.measuredRadiusMm ?? L.commercialRadiusMm, pole: L.pole, load: L.load });
+  const z = elevationAnalysis(s, L.noiseSigmaUm, L.surfaceUncertaintyUm, 2).raw;
+  near(z.volumeMm3, p.source.truth.elevationVolumeMm3, 0.15 * p.source.truth.elevationVolumeMm3);
+  assert.ok(z.peakUm >= p.source.truth.elevationPeakUm && z.peak1mm2Um <= z.peakUm);
+});

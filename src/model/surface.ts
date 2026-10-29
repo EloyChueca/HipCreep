@@ -152,6 +152,43 @@ export interface ElevationResult {
   elevationThetaDeg: number;
   /** Change of the elevation volume per µm of error in the reference radius (mm³/µm) */
   radiusSensitivityMm3PerUm: number;
+  /** Measured elevated zone, no model and no threshold: everything above the original sphere */
+  raw: ElevatedZone;
+}
+
+/** The material above the original surface as measured (v0.13) */
+export interface ElevatedZone {
+  /** Volume above the original sphere (mm³), no threshold */
+  volumeMm3: number;
+  /** Area above the original sphere (mm²) */
+  areaMm2: number;
+  /** Highest point: elevation (µm) and its angle from the cup pole (deg) */
+  peakUm: number;
+  peakThetaDeg: number;
+  /** Mean elevation of the highest 1 mm² (µm): the peak, less sensitive to a single noisy vertex */
+  peak1mm2Um: number;
+}
+
+/** Volume, area and peak of the material above the original sphere (rim band excluded) */
+export function elevatedZone(s: SurfaceData, rimBandDeg = 2): ElevatedZone {
+  const thetaMax = s.maxThetaRad - rimBandDeg * Math.PI / 180;
+  let vol = 0, area = 0, peak = 0, peakTheta = NaN;
+  const idx: number[] = [];
+  for (let v = 0; v < s.n; v++) {
+    if (s.theta[v] > thetaMax) continue;
+    const e = -s.devUm[v];
+    if (e <= 0) continue;
+    vol += s.area[v] * e; area += s.area[v]; idx.push(v);
+    if (e > peak) { peak = e; peakTheta = s.theta[v]; }
+  }
+  idx.sort((a, b) => s.devUm[a] - s.devUm[b]);       // highest elevation first
+  let a1 = 0, w1 = 0;
+  for (const v of idx) {
+    if (a1 >= 1) break;
+    const da = Math.min(s.area[v], 1 - a1);
+    w1 += da * -s.devUm[v]; a1 += da;
+  }
+  return { volumeMm3: vol * 1e-3, areaMm2: area, peakUm: peak, peakThetaDeg: peakTheta * 180 / Math.PI, peak1mm2Um: a1 > 0 ? w1 / a1 : 0 };
 }
 
 /** E[(X − a)+] for X ~ N(0, σ) */
@@ -210,6 +247,7 @@ export function elevationAnalysis(
     elevationPsiDeg: wSum > 0 ? (wPsi / wSum) * 180 / Math.PI : NaN,
     elevationThetaDeg: wSum > 0 ? (wTheta / wSum) * 180 / Math.PI : NaN,
     radiusSensitivityMm3PerUm: A * 1e-3,
+    raw: elevatedZone(s, rimBandDeg),
   };
 }
 

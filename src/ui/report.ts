@@ -459,6 +459,7 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
     sec.insertAdjacentHTML('beforeend', `
       <div class="table-wrap"><table class="data summary">
         <tbody>
+          <tr><th scope="row">Elevated zone, as measured (no model, no threshold)</th><td>volume <b>${fmt(e.raw.volumeMm3, 3)}</b> mm³ · area ${fmt(e.raw.areaMm2)} mm² · highest point <b>${fmt(e.raw.peakUm)}</b> µm at ${fmt(e.raw.peakThetaDeg)}° from the pole (mean of the highest 1 mm²: ${fmt(e.raw.peak1mm2Um)} µm) <span class="range-i">· scanner noise σ ${fmt(e.sigmaEffUm)} µm: noise alone also gives elevations of a few σ</span></td></tr>
           <tr><th scope="row">Net elevation volume</th><td><b>${fmt(e.nominal.netMm3, 3)}</b> mm³ <span class="range-i">(${fmt(e.netRangeMm3[0], 3)} – ${fmt(e.netRangeMm3[1], 3)})</span></td></tr>
           <tr class="hl"><th scope="row">Minimum remaining creep (from the elevations)</th><td><b>${fmt(minNom)}</b> µm <span class="range-i">(${fmt(minLo)} – ${fmt(minHi)})</span></td></tr>
           <tr><th scope="row">Model remaining creep vs this bound<div class="note-s">median of each recovery scenario; ✓ if the bound is below the median, ✗ if above P95</div></th><td style="text-align:left">${consistency}<div class="range">envelope median ${fmt(remDyn.p50)} (dynamic) / ${fmt(S.static.remaining.p50)} µm (static)</div></td></tr>

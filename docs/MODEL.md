@@ -229,6 +229,17 @@ Caveats shown in the report: each µm of error in `R_ref` changes `V_elev` by `A
 form error of the liner also produces elevations — they should sit at the edge of the contact zone, where creep flow is
 expected (Zeman et al. 2018 measured 20–30 µm elevations at the rim after the run-in).
 
+### Elevated zone as measured (v0.13)
+
+Reported for every liner with a surface, without any creep or wear model and without threshold: the area and the
+volume of all the material above the original sphere (rim band excluded), the highest point and its angle from the
+pole, and the mean elevation of the highest 1 mm² (less sensitive to a single noisy vertex). The volume above 2σ of
+the scanner noise with the noise floor subtracted (the value used for the minimum creep) is given next to it. On the
+phantom the measured volume is within 4 % of the true elevation volume; the highest point exceeds the true peak by
+about 3σ of the noise. Elevations also come from errors of the reference radius or centre (≈ analysed area × radius
+error: ≈ 0.5–0.8 mm³ per µm), out-of-roundness and rim or flange features, so large volumes on short implantations
+or peaks next to the rim point to the reference rather than to creep.
+
 ## 7. Not modelled
 
 Backside creep and liner seating in the shell, frictional heating, oxidation, impingement/edge loading, wear–creep

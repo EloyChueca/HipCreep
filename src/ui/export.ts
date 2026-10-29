@@ -124,6 +124,12 @@ const COLUMN_NOTES: Record<string, string> = {
   W_long_p50: 'Wear = D − remaining creep, long-loading scenario (µm): median', W_long_p5: '… 5th percentile', W_long_p95: '… 95th percentile',
   elev_min_creep_um: 'Minimum remaining creep from the elevations above the original sphere (µm): nominal', elev_min_lo: '… low end', elev_min_hi: '… high end',
   elev_check_LP: 'Model vs elevation bound, L&P: consistent / median-below / below', elev_check_long: 'Model vs elevation bound, long loading', verdict: 'Verdict on the creep/wear separation',
+  elevated_area_mm2: 'Measured elevated zone (no model): area above the original sphere (mm²)',
+  elevated_volume_mm3: 'Measured elevated zone: volume above the original sphere, no threshold (mm³) — minimum creep volume as measured',
+  elevated_volume_above_noise_mm3: 'Volume of the elevations above 2σ of the scanner noise, noise floor subtracted (mm³)',
+  elevation_peak_um: 'Highest point of the elevated zone (µm above the original sphere)',
+  elevation_peak_1mm2_um: 'Mean elevation of the highest 1 mm² (µm): peak less sensitive to a single noisy point',
+  elevation_peak_theta_deg: 'Angle of the highest point from the cup pole (deg)',
 };
 
 const rng = (r: { nominal: number; lo: number; hi: number }) => `${r.nominal} (${r.lo}–${r.hi})`;
@@ -144,10 +150,21 @@ export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: 
     ['Dynamic / Static', 'Editable charts for each loading mode: remaining creep per liner (both recovery scenarios, 90 % intervals, measured D ± 2 SD, detection limit, elevation bound) and wear vs years in vivo'],
     ['Comparison', 'Dynamic vs static (two independent Monte Carlo simulations): remaining creep per liner (editable chart) and a table per liner with Cmax, remaining creep and wear'],
     ['Wear L&P vs long', 'Wear with each recovery scenario (Lee & Pienkowski vs long loading), dynamic and static: editable charts per liner and a table'],
+    ['Elevated zone', 'Material above the original sphere as measured (no model): area, volume (all of it, and above 2σ of the noise), highest point and mean of the highest 1 mm²'],
     ['Chart data', 'The cells the charts point at; error-bar lengths are formulas on the percentile cells, so editing a value updates the charts'],
     [],
     ['Column', 'Meaning'], ...SERIES_COLUMNS.map((h) => [h, COLUMN_NOTES[h] ?? '']),
   ];
+  // measured elevated zone, one row per liner
+  if (res.some((r) => r.elevatedZone)) {
+    const z = (x: number | undefined, d = 1) => (x != null && Number.isFinite(x) ? Number(x.toFixed(d)) : null);
+    sheets.push({
+      name: 'Elevated zone', header: true, widths: [18, 22, 14, 16, 18, 14, 16, 14, 14, 14],
+      rows: [['Liner', 'Polyethylene', 'Elevated area (mm²)', 'Elevated volume (mm³)', 'Volume above noise 2σ (mm³)', 'Highest point (µm)', 'Mean of highest 1 mm² (µm)', 'Angle from pole (°)', 'Noise σ (µm)', 'Threshold 2σ (µm)'],
+        ...res.map((r) => [r.caseId, r.materialLabel.split(',')[0], z(r.elevatedZone?.areaMm2), z(r.elevatedZone?.volumeMm3, 3), z(r.elevatedZone?.volumeAboveNoiseMm3, 3),
+          z(r.elevatedZone?.peakUm), z(r.elevatedZone?.peak1mm2Um), z(r.elevatedZone?.peakThetaDeg), z(r.elevatedZone?.sigmaUm), z(r.elevatedZone?.thresholdUm)])],
+    });
+  }
   // editable charts (Dynamic / Static / Comparison) and the cells they point at
   sheets.push(...seriesChartSheets(res));
   sheets.push({ name: 'Info', widths: [30, 90], rows: info });

@@ -12,7 +12,7 @@ import type { CaseInput } from './case.ts';
 import type { Loading } from './laws.ts';
 import { materialPreset, type MaterialId } from './materials.ts';
 import { MODES, runDeterministic, runMonteCarlo, verdict, type McResult, type Verdict } from './analysis.ts';
-import { analyseSurface, elevationAnalysis, minCreepDepthUm } from './surface.ts';
+import { analyseSurface, elevationAnalysis, minCreepDepthUm, type ElevatedZone } from './surface.ts';
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import type { Stats } from './stats.ts';
 import type { RecoveryScenario } from './recovery.ts';
@@ -70,6 +70,8 @@ export interface SeriesResult {
   modes: Record<Loading, SeriesModeResult>;
   /** Minimum remaining creep from the elevations (µm), nominal and range; null without a mesh */
   elevationMinCreepUm: { nominal: number; lo: number; hi: number } | null;
+  /** Measured elevated zone (no model): volume, area and peak above the original sphere; null without a mesh */
+  elevatedZone: (ElevatedZone & { volumeAboveNoiseMm3: number; thresholdUm: number; sigmaUm: number }) | null;
   warnings: string[];
   elapsedMs: number;
 }
@@ -81,6 +83,7 @@ export async function runSeriesCase(
   const det = runDeterministic(c);
   const mc: McResult = await runMonteCarlo(c);
   let elev: SeriesResult['elevationMinCreepUm'] = null;
+  let zone: SeriesResult['elevatedZone'] = null;
   if (L.mesh) {
     const useMeasured = opt.refRadius === 'measured' && !!L.measuredRadiusMm;
     const R = useMeasured ? L.measuredRadiusMm! : L.commercialRadiusMm;
@@ -90,6 +93,7 @@ export async function runSeriesCase(
     const row = det.rows.find((r) => r.law === (c.mcLaws[0] ?? c.laws[0]) && r.mode === 'dynamic' && r.temperature === 'in-vivo') ?? det.rows[0];
     const shape = row.sim.shapeAreaMm2;
     elev = { nominal: minCreepDepthUm(e.nominal.netMm3, shape), lo: minCreepDepthUm(e.netRangeMm3[0], shape), hi: minCreepDepthUm(e.netRangeMm3[1], shape) };
+    zone = { ...e.raw, volumeAboveNoiseMm3: e.nominal.netMm3, thresholdUm: e.nominal.thresholdUm, sigmaUm: e.sigmaEffUm };
   }
   const modes = {} as Record<Loading, SeriesModeResult>;
   for (const mode of MODES) {
@@ -107,7 +111,7 @@ export async function runSeriesCase(
   return {
     caseId: c.caseId, file: L.name, years: c.implantMonths / 12, material: c.material, materialLabel: materialPreset(c.material, c.irradiation).label, bodyMassKg: c.bodyMassKg,
     exVivoDays: c.exVivoDays, headDiameterMm: c.headDiameterMm, thicknessMm: c.thicknessMm, measured: c.measured,
-    modes, elevationMinCreepUm: elev, warnings: L.warnings, elapsedMs: performance.now() - t0,
+    modes, elevationMinCreepUm: elev, elevatedZone: zone, warnings: L.warnings, elapsedMs: performance.now() - t0,
   };
 }
 
@@ -121,7 +125,8 @@ export const SERIES_COLUMNS = ['case', 'file', 'material', 'years_in_vivo', 'bod
   'Cmax_p50', 'Cmax_p5', 'Cmax_p95',
   'Crem_LP_p50', 'Crem_LP_p5', 'Crem_LP_p95', 'Crem_long_p50', 'Crem_long_p5', 'Crem_long_p95',
   'W_LP_p50', 'W_LP_p5', 'W_LP_p95', 'W_long_p50', 'W_long_p5', 'W_long_p95',
-  'elev_min_creep_um', 'elev_min_lo', 'elev_min_hi', 'elev_check_LP', 'elev_check_long', 'verdict'] as const;
+  'elev_min_creep_um', 'elev_min_lo', 'elev_min_hi', 'elev_check_LP', 'elev_check_long', 'verdict',
+  'elevated_area_mm2', 'elevated_volume_mm3', 'elevated_volume_above_noise_mm3', 'elevation_peak_um', 'elevation_peak_1mm2_um', 'elevation_peak_theta_deg'] as const;
 
 /** Columns quoted in the CSV (free text) */
 const TEXT_COLS = new Set([0, 1, 2, 33]);
@@ -139,14 +144,16 @@ export function seriesTable(rows: SeriesResult[]): (string | number | null)[][] 
       r1(lp?.remaining.p50), r1(lp?.remaining.p5), r1(lp?.remaining.p95), r1(lg?.remaining.p50), r1(lg?.remaining.p5), r1(lg?.remaining.p95),
       r1(lp?.wear?.p50), r1(lp?.wear?.p5), r1(lp?.wear?.p95), r1(lg?.wear?.p50), r1(lg?.wear?.p5), r1(lg?.wear?.p95),
       r1(r.elevationMinCreepUm?.nominal), r1(r.elevationMinCreepUm?.lo), r1(r.elevationMinCreepUm?.hi),
-      lp?.elevation ?? null, lg?.elevation ?? null, m.verdict?.title ?? '']);
+      lp?.elevation ?? null, lg?.elevation ?? null, m.verdict?.title ?? '',
+      r1(r.elevatedZone?.areaMm2), r1(r.elevatedZone?.volumeMm3, 3), r1(r.elevatedZone?.volumeAboveNoiseMm3, 3),
+      r1(r.elevatedZone?.peakUm), r1(r.elevatedZone?.peak1mm2Um), r1(r.elevatedZone?.peakThetaDeg)]);
   }
   return out;
 }
 
 /** One row per liner and loading mode */
 export function seriesCsv(rows: SeriesResult[]): string {
-  const decimals = (j: number) => (j === 3 || j === 7 ? 2 : j === 4 || j === 5 || j === 12 ? 0 : 1);
+  const decimals = (j: number) => (j === 3 || j === 7 ? 2 : j === 4 || j === 5 || j === 12 ? 0 : j === 35 || j === 36 ? 3 : 1);
   const L = [SERIES_COLUMNS.join(',')];
   for (const row of seriesTable(rows)) {
     L.push(row.map((v, j) => TEXT_COLS.has(j) ? q(String(v ?? '')) : typeof v === 'number' ? n(v, decimals(j)) : (v ?? '')).join(','));
