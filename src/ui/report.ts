@@ -2,11 +2,12 @@
 // HipCreep — results report
 // ============================================================
 
+import { elevationPlausibility } from '../model/series.ts';
 import type { CaseInput } from '../model/case.ts';
 import { LAWS, type LawId, type Loading } from '../model/laws.ts';
 import { MATERIALS, materialPreset } from '../model/materials.ts';
 import { gaitSeconds, implantSeconds, verdict, type DeterministicResult, type McResult, type Verdict } from '../model/analysis.ts';
-import { binPolar, minCreepDepthUm, modelToPolar, syntheticBases, type ElevationResult, type SurfaceData, type PolarGrid } from '../model/surface.ts';
+import { binPolar, loadZoneMask, minCreepDepthUm, modelToPolar, syntheticBases, type ElevationResult, type SurfaceData, type PolarGrid } from '../model/surface.ts';
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import type { UiSettings } from './form.ts';
 import { fmt, num, pct, fmtTime, escapeHtml, cssVar } from './format.ts';
@@ -442,6 +443,7 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
       : `commercial radius ${fmt(d.loaded?.commercialRadiusMm, 3)} mm`;
     const dyn = det.rows.find((r) => r.law === c.laws[0] && r.mode === 'dynamic' && r.temperature === 'in-vivo')!;
     const shape = dyn.sim.shapeAreaMm2;
+    const plaus = elevationPlausibility(e, (S.static.remaining.p95 * shape) / 1000);
     const minNom = minCreepDepthUm(e.nominal.netMm3, shape);
     const minLo = minCreepDepthUm(e.netRangeMm3[0], shape), minHi = minCreepDepthUm(e.netRangeMm3[1], shape);
     const remDyn = S.dynamic.remaining;
@@ -459,7 +461,9 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
     sec.insertAdjacentHTML('beforeend', `
       <div class="table-wrap"><table class="data summary">
         <tbody>
-          <tr><th scope="row">Elevated zone, as measured (no model, no threshold)</th><td>volume <b>${fmt(e.raw.volumeMm3, 3)}</b> mm³ · area ${fmt(e.raw.areaMm2)} mm² · highest point <b>${fmt(e.raw.peakUm)}</b> µm at ${fmt(e.raw.peakThetaDeg)}° from the pole (mean of the highest 1 mm²: ${fmt(e.raw.peak1mm2Um)} µm) <span class="range-i">· scanner noise σ ${fmt(e.sigmaEffUm)} µm: noise alone also gives elevations of a few σ</span></td></tr>
+          <tr><th scope="row">Elevated material around the load zone, as measured (no model, no threshold)</th><td>volume <b>${fmt(e.raw.volumeMm3, 3)}</b> mm³ <span class="range-i">(${fmt(e.rawRange[0], 3)} – ${fmt(e.rawRange[1], 3)} with the reference radius ± ${fmt(e.radiusUncUm)} µm)</span> · area ${fmt(e.raw.areaMm2)} mm² · highest point <b>${fmt(e.raw.peakUm)}</b> µm at ${fmt(e.raw.peakThetaDeg)}° from the pole (mean of the highest 1 mm²: ${fmt(e.raw.peak1mm2Um)} µm)
+            <div class="range-i">${e.zone ? `Load zone: ${e.zone.aboutPole ? `${fmt(e.zone.halfAngleDeg)}° about the pole (no penetration direction)` : `${fmt(e.zone.halfAngleDeg)}° about the penetration direction`} (model contact zone + ${fmt(d.ui.loadZoneMarginDeg)}°). Left out, outside it: ${fmt(Math.max(0, e.rawAll.volumeMm3 - e.raw.volumeMm3), 3)} mm³. ` : ''}Scanner noise σ ${fmt(e.sigmaEffUm)} µm: noise alone also gives elevations of a few σ.</div>
+            <div>${plaus.ok ? '<span class="badge separable">✓</span> plausible as creep' : `<span class="badge inconsistent">!</span> doubtful as creep: ${plaus.flags.map(escapeHtml).join('; ')}`}</div></td></tr>
           <tr><th scope="row">Net elevation volume</th><td><b>${fmt(e.nominal.netMm3, 3)}</b> mm³ <span class="range-i">(${fmt(e.netRangeMm3[0], 3)} – ${fmt(e.netRangeMm3[1], 3)})</span></td></tr>
           <tr class="hl"><th scope="row">Minimum remaining creep (from the elevations)</th><td><b>${fmt(minNom)}</b> µm <span class="range-i">(${fmt(minLo)} – ${fmt(minHi)})</span></td></tr>
           <tr><th scope="row">Model remaining creep vs this bound<div class="note-s">median of each recovery scenario; ✓ if the bound is below the median, ✗ if above P95</div></th><td style="text-align:left">${consistency}<div class="range">envelope median ${fmt(remDyn.p50)} (dynamic) / ${fmt(S.static.remaining.p50)} µm (static)</div></td></tr>
@@ -524,7 +528,21 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
       renderMap(holder, { title: 'Predicted remaining creep', subtitle: predLabel, grid: pred, scale: { kind: 'diverging', limit: lim }, unit: 'µm' });
       renderMap(holder, { title: 'Estimated wear', subtitle: 'measured − predicted remaining creep (µm)', grid: wear, scale: { kind: 'diverging', limit: lim }, unit: 'µm' });
       const thr = d.elevation ? d.elevation.nominal.thresholdUm : 0;
-      renderMap(holder, { title: 'Elevations', subtitle: `material above the original surface beyond ${fmt(thr)} µm`, grid: meas, scale: { kind: 'diverging', limit: Math.max(thr * 2, robustAbsMax(meas.value.map((v) => Math.min(0, v)))) }, unit: 'µm', mask: (v) => v < -thr });
+      const elevLim = Math.max(thr * 2, robustAbsMax(meas.value.map((v) => Math.min(0, v))));
+      const zone = d.elevation?.zone;
+      if (zone) {
+        // load zone: elevations inside it count as creep, the rest is shown apart and not counted
+        const m = loadZoneMask(d.surface, zone);
+        const zf = Float64Array.from(m);
+        const zg = binPolar(d.surface, zf, nT, nA, maxTheta);
+        const inside: PolarGrid = { ...meas, value: meas.value.map((v, k) => (zg.value[k] >= 0.5 ? v : NaN)) };
+        const outside: PolarGrid = { ...meas, value: meas.value.map((v, k) => (zg.value[k] >= 0.5 ? NaN : v)) };
+        const where = zone.aboutPole ? `within ${fmt(zone.halfAngleDeg)}° of the pole` : `within ${fmt(zone.halfAngleDeg)}° of the penetration direction`;
+        renderMap(holder, { title: 'Elevations in the load zone (counted)', subtitle: `beyond ${fmt(thr)} µm, ${where}`, grid: inside, scale: { kind: 'diverging', limit: elevLim }, unit: 'µm', mask: (v) => v < -thr });
+        renderMap(holder, { title: 'Elevations outside the load zone (not counted)', subtitle: `beyond ${fmt(thr)} µm: retrieval damage, scanning, rim contact…`, grid: outside, scale: { kind: 'diverging', limit: elevLim }, unit: 'µm', mask: (v) => v < -thr });
+      } else {
+        renderMap(holder, { title: 'Elevations', subtitle: `material above the original surface beyond ${fmt(thr)} µm`, grid: meas, scale: { kind: 'diverging', limit: elevLim }, unit: 'µm', mask: (v) => v < -thr });
+      }
     } else {
       const scale = { kind: 'sequential' as const, max: Math.max(target, 1e-6) };
       renderSurface3D(holder3d, { fields: [{ key: 'pred', label: `Predicted remaining creep (${predLabel})`, grid: pred, scale, unit: 'µm' }], radiusMm: radius });

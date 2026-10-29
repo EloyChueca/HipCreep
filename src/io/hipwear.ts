@@ -74,6 +74,8 @@ export interface LoadedHipWearCase {
   measuredRadiusMm: number | null;
   measuredRadiusReliable: boolean;
   noiseSigmaUm: number;
+  /** RMS form error of the unworn reference about its sphere (µm), null if not in the file */
+  formRmsUm: number | null;
   surfaceUncertaintyUm: number;
   mesh: SurfaceMesh | null;
   warnings: string[];
@@ -216,6 +218,7 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
     measuredRadiusMm: Rm,
     measuredRadiusReliable: reliable,
     noiseSigmaUm: isNum(u.noiseSigmaUm) ? u.noiseSigmaUm : 0,
+    formRmsUm: isNum(u.formRmsUm) ? u.formRmsUm : null,
     surfaceUncertaintyUm: isNum(u.surfaceUncertaintyUm) ? u.surfaceUncertaintyUm : 0,
     mesh,
     warnings,

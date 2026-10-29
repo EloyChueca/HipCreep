@@ -136,19 +136,21 @@ function renderModeSection(root: HTMLElement, items: SeriesItem[], res: SeriesRe
   for (const card of seriesChartCards(res, mode)) sec.appendChild(card);
 }
 
-/** Measured elevated zone of each liner (no model) */
+/** Measured elevated material around the load zone of each liner (no model) */
 function renderElevatedZone(root: HTMLElement, res: SeriesResult[]): void {
   if (!res.some((r) => r.elevatedZone)) return;
-  const sec = section(root, 'Elevated zone — as measured',
-    'Material above the original sphere, counted directly on the HipWear surface (no creep or wear model; rim band excluded). Wear cannot create elevations and creep conserves volume, so the elevated volume is the minimum creep volume as measured. <b>Above noise</b>: only the part beyond 2σ of the scanner noise, minus what noise alone would give. <b>Highest point</b>: largest elevation; the mean of the highest 1 mm² is less sensitive to a single noisy point.');
+  const sec = section(root, 'Elevated material around the load zone — as measured',
+    'Material above the original sphere counted directly on the HipWear surface (no creep or wear model), <b>only around the load zone</b>: the contact zone of the creep model about the penetration direction plus a margin (about the pole when there is no direction). Elevations elsewhere — damage at retrieval, badly scanned parts, rim contact — are left out. Wear cannot create elevations and creep conserves volume, so this volume is the minimum creep volume as measured. <b>Range</b>: with the reference radius ± its uncertainty (setting, 5 µm by default). <b>Above noise</b>: beyond 2σ of the scanner noise, minus what noise alone would give. <b>Plausible</b>: not more than the largest creep the model allows, highest point not at the edge, above the noise.');
   const body = res.map((r, i) => {
     const z = r.elevatedZone;
-    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td>${z
-      ? `<td>${fmt(z.areaMm2)}</td><td><b>${fmt(z.volumeMm3, 3)}</b></td><td>${fmt(z.volumeAboveNoiseMm3, 3)}</td><td><b>${fmt(z.peakUm)}</b></td><td>${fmt(z.peak1mm2Um)}</td><td>${fmt(z.peakThetaDeg)}°</td><td>${fmt(z.sigmaUm)}</td>`
-      : '<td colspan="7">no surface in the file</td>'}</tr>`;
+    if (!z) return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td><td colspan="9">no surface in the file</td></tr>`;
+    const pl = z.plausibility.ok ? '<span class="badge separable">✓</span>' : `<span class="badge inconsistent" title="${escapeHtml(z.plausibility.flags.join('; '))}">!</span> <span class="range">${escapeHtml(z.plausibility.flags.join('; '))}</span>`;
+    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td><td>${z.zoneAboutPole ? 'pole' : 'load'} ${fmt(z.zoneHalfAngleDeg)}°</td><td>${fmt(z.areaMm2)}</td>
+      <td><b>${fmt(z.volumeMm3, 3)}</b><div class="range">${fmt(z.volumeRangeMm3[0], 3)} – ${fmt(z.volumeRangeMm3[1], 3)}</div></td><td>${fmt(z.volumeAboveNoiseMm3, 3)}</td>
+      <td><b>${fmt(z.peakUm)}</b><div class="range">at ${fmt(z.peakThetaDeg)}° from pole</div></td><td>${fmt(z.peak1mm2Um)}</td><td>${fmt(z.excludedVolumeMm3, 3)}</td><td>${fmt(z.sigmaUm)}</td><td class="vd">${pl}</td></tr>`;
   }).join('');
   sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
-    <thead><tr><th>#</th><th>Case</th><th>Elevated area (mm²)</th><th>Elevated volume (mm³)</th><th>Above noise (mm³)</th><th>Highest point (µm)</th><th>Highest 1 mm² (µm)</th><th>Angle from pole</th><th>Noise σ (µm)</th></tr></thead>
+    <thead><tr><th>#</th><th>Case</th><th>Load zone</th><th>Elevated area (mm²)</th><th>Elevated volume (mm³)</th><th>Above noise (mm³)</th><th>Highest point (µm)</th><th>Highest 1 mm² (µm)</th><th>Left out, outside the zone (mm³)</th><th>Noise σ (µm)</th><th>Plausible as creep</th></tr></thead>
     <tbody>${body}</tbody></table></div>`);
 }
 

@@ -12,7 +12,7 @@ import type { CaseInput } from './case.ts';
 import type { Loading } from './laws.ts';
 import { materialPreset, type MaterialId } from './materials.ts';
 import { MODES, runDeterministic, runMonteCarlo, verdict, type McResult, type Verdict } from './analysis.ts';
-import { analyseSurface, elevationAnalysis, minCreepDepthUm, type ElevatedZone } from './surface.ts';
+import { analyseSurface, elevationAnalysis, minCreepDepthUm, type ElevatedZone, type ElevationResult, type LoadZone } from './surface.ts';
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import type { Stats } from './stats.ts';
 import type { RecoveryScenario } from './recovery.ts';
@@ -47,6 +47,61 @@ export function elevationStatus(minCreepUm: number, remaining: Stats): Elevation
   return 'consistent';
 }
 
+export interface ElevatedZoneResult extends ElevatedZone {
+  volumeAboveNoiseMm3: number;
+  thresholdUm: number;
+  sigmaUm: number;
+  /** Elevated volume with the reference radius ∓ its uncertainty: [low, high] (mm³) */
+  volumeRangeMm3: [number, number];
+  radiusUncUm: number;
+  /** Load zone: half-angle (deg) about the load axis, or about the pole when the direction is unknown */
+  zoneHalfAngleDeg: number;
+  zoneAboutPole: boolean;
+  /** Elevated volume outside the load zone, not counted (mm³) */
+  excludedVolumeMm3: number;
+  plausibility: Plausibility;
+}
+
+export interface Plausibility {
+  ok: boolean;
+  /** Short reasons (English) when not ok */
+  flags: string[];
+}
+
+/** Default uncertainty of the reference radius for the range of the elevated volume (µm) */
+export const RADIUS_UNC_UM = 5;
+
+/** Margin added to the model's contact half-angle to define the load zone (deg) */
+export const LOAD_ZONE_MARGIN_DEG = 15;
+
+/**
+ * Load zone for the elevations: the contact zone of the creep model (static, in vivo — the widest) plus a
+ * margin, about the penetration direction; about the pole (adding the load angle) when the direction is
+ * unknown or was rejected.
+ */
+export function loadZoneFor(c: CaseInput, L: LoadedHipWearCase, det: ReturnType<typeof runDeterministic>, marginDeg = LOAD_ZONE_MARGIN_DEG): LoadZone {
+  const law = c.mcLaws[0] ?? c.laws[0];
+  const rows = det.rows.filter((r) => r.temperature === 'in-vivo' && (r.law === law));
+  const half = Math.max(...(rows.length ? rows : det.rows).map((r) => r.sim.contactHalfAngleFinalDeg));
+  const aboutPole = !L.load || L.loadAngleDeg == null;
+  return { halfAngleDeg: Math.min(180, half + marginDeg + (aboutPole ? c.loadAngleDeg : 0)), aboutPole };
+}
+
+/**
+ * Is the elevated material plausible as creep? Not when it is more than the model's largest remaining
+ * creep could displace (static, P95), when its highest point sits at the analysed edge, or when it is
+ * not above the scanner noise.
+ */
+export function elevationPlausibility(e: ElevationResult, maxCreepVolumeMm3: number): Plausibility {
+  const flags: string[] = [];
+  const z = e.raw;
+  if (!(e.nominal.netMm3 > 0.01)) flags.push('not above the scanner noise');
+  if (maxCreepVolumeMm3 > 0 && e.nominal.netMm3 > maxCreepVolumeMm3)
+    flags.push(`more than the largest creep volume the model allows (${maxCreepVolumeMm3.toFixed(2)} mm³): reference radius/centre or form error likely`);
+  if (z.peakUm > 0 && z.peakThetaDeg > e.edgeThetaDeg - 10) flags.push('highest point at the trim edge (within 10°): possible rim artefact');
+  return { ok: flags.length === 0, flags };
+}
+
 export interface SeriesModeResult {
   creep: Stats;
   remaining: Stats;
@@ -70,30 +125,34 @@ export interface SeriesResult {
   modes: Record<Loading, SeriesModeResult>;
   /** Minimum remaining creep from the elevations (µm), nominal and range; null without a mesh */
   elevationMinCreepUm: { nominal: number; lo: number; hi: number } | null;
-  /** Measured elevated zone (no model): volume, area and peak above the original sphere; null without a mesh */
-  elevatedZone: (ElevatedZone & { volumeAboveNoiseMm3: number; thresholdUm: number; sigmaUm: number }) | null;
+  /** Measured elevated material around the load zone (no model): volume, area and peak above the original
+   *  sphere, its range with the radius uncertainty, what was left out and a plausibility check; null without a mesh */
+  elevatedZone: ElevatedZoneResult | null;
   warnings: string[];
   elapsedMs: number;
 }
 
 export async function runSeriesCase(
-  c: CaseInput, L: LoadedHipWearCase, opt: { refRadius: 'measured' | 'commercial'; rimBandDeg: number },
+  c: CaseInput, L: LoadedHipWearCase, opt: { refRadius: 'measured' | 'commercial'; rimBandDeg: number; loadZoneMarginDeg?: number; radiusUncUm?: number },
 ): Promise<SeriesResult> {
   const t0 = performance.now();
   const det = runDeterministic(c);
   const mc: McResult = await runMonteCarlo(c);
   let elev: SeriesResult['elevationMinCreepUm'] = null;
   let zone: SeriesResult['elevatedZone'] = null;
+  let elevResult: ElevationResult | null = null, zoneShape = 0;
   if (L.mesh) {
     const useMeasured = opt.refRadius === 'measured' && !!L.measuredRadiusMm;
     const R = useMeasured ? L.measuredRadiusMm! : L.commercialRadiusMm;
     const center = useMeasured && L.measuredCenter ? L.measuredCenter : L.center;
     const s = analyseSurface(L.mesh, { center, radiusMm: R, pole: L.pole, load: L.load });
-    const e = elevationAnalysis(s, L.noiseSigmaUm, L.surfaceUncertaintyUm, opt.rimBandDeg);
+    const lz = loadZoneFor(c, L, det, opt.loadZoneMarginDeg);
+    const e = elevationAnalysis(s, L.noiseSigmaUm, L.surfaceUncertaintyUm, opt.rimBandDeg, { zone: lz, radiusUncUm: opt.radiusUncUm ?? RADIUS_UNC_UM });
     const row = det.rows.find((r) => r.law === (c.mcLaws[0] ?? c.laws[0]) && r.mode === 'dynamic' && r.temperature === 'in-vivo') ?? det.rows[0];
     const shape = row.sim.shapeAreaMm2;
     elev = { nominal: minCreepDepthUm(e.nominal.netMm3, shape), lo: minCreepDepthUm(e.netRangeMm3[0], shape), hi: minCreepDepthUm(e.netRangeMm3[1], shape) };
-    zone = { ...e.raw, volumeAboveNoiseMm3: e.nominal.netMm3, thresholdUm: e.nominal.thresholdUm, sigmaUm: e.sigmaEffUm };
+    elevResult = e;
+    zoneShape = shape;
   }
   const modes = {} as Record<Loading, SeriesModeResult>;
   for (const mode of MODES) {
@@ -106,6 +165,17 @@ export async function runSeriesCase(
     modes[mode] = {
       creep: S.creep, remaining: S.remaining, wear: S.wear, byScenario,
       verdict: c.measured ? verdict(c.measured, S.remaining, S.wear, S.probWearNegative) : null,
+    };
+  }
+  if (elevResult) {
+    const e = elevResult;
+    const maxVol = (mc.summary.static.remaining.p95 * zoneShape) / 1000;      // µm × mm² → mm³
+    zone = {
+      ...e.raw, volumeAboveNoiseMm3: e.nominal.netMm3, thresholdUm: e.nominal.thresholdUm, sigmaUm: e.sigmaEffUm,
+      volumeRangeMm3: e.rawRange, radiusUncUm: e.radiusUncUm,
+      zoneHalfAngleDeg: e.zone?.halfAngleDeg ?? 180, zoneAboutPole: e.zone?.aboutPole ?? true,
+      excludedVolumeMm3: Math.max(0, e.rawAll.volumeMm3 - e.raw.volumeMm3),
+      plausibility: elevationPlausibility(e, maxVol),
     };
   }
   return {
@@ -126,10 +196,11 @@ export const SERIES_COLUMNS = ['case', 'file', 'material', 'years_in_vivo', 'bod
   'Crem_LP_p50', 'Crem_LP_p5', 'Crem_LP_p95', 'Crem_long_p50', 'Crem_long_p5', 'Crem_long_p95',
   'W_LP_p50', 'W_LP_p5', 'W_LP_p95', 'W_long_p50', 'W_long_p5', 'W_long_p95',
   'elev_min_creep_um', 'elev_min_lo', 'elev_min_hi', 'elev_check_LP', 'elev_check_long', 'verdict',
-  'elevated_area_mm2', 'elevated_volume_mm3', 'elevated_volume_above_noise_mm3', 'elevation_peak_um', 'elevation_peak_1mm2_um', 'elevation_peak_theta_deg'] as const;
+  'elevated_area_mm2', 'elevated_volume_mm3', 'elevated_volume_above_noise_mm3', 'elevation_peak_um', 'elevation_peak_1mm2_um', 'elevation_peak_theta_deg',
+  'elevated_volume_lo_mm3', 'elevated_volume_hi_mm3', 'load_zone_half_angle_deg', 'excluded_elevated_volume_mm3', 'elevation_plausible', 'elevation_flags'] as const;
 
 /** Columns quoted in the CSV (free text) */
-const TEXT_COLS = new Set([0, 1, 2, 33]);
+const TEXT_COLS = new Set([0, 1, 2, 33, 45]);
 
 /** One row per liner and loading mode; numbers rounded as in the CSV, null when missing */
 export function seriesTable(rows: SeriesResult[]): (string | number | null)[][] {
@@ -146,14 +217,17 @@ export function seriesTable(rows: SeriesResult[]): (string | number | null)[][] 
       r1(r.elevationMinCreepUm?.nominal), r1(r.elevationMinCreepUm?.lo), r1(r.elevationMinCreepUm?.hi),
       lp?.elevation ?? null, lg?.elevation ?? null, m.verdict?.title ?? '',
       r1(r.elevatedZone?.areaMm2), r1(r.elevatedZone?.volumeMm3, 3), r1(r.elevatedZone?.volumeAboveNoiseMm3, 3),
-      r1(r.elevatedZone?.peakUm), r1(r.elevatedZone?.peak1mm2Um), r1(r.elevatedZone?.peakThetaDeg)]);
+      r1(r.elevatedZone?.peakUm), r1(r.elevatedZone?.peak1mm2Um), r1(r.elevatedZone?.peakThetaDeg),
+      r1(r.elevatedZone?.volumeRangeMm3[0], 3), r1(r.elevatedZone?.volumeRangeMm3[1], 3), r1(r.elevatedZone?.zoneHalfAngleDeg),
+      r1(r.elevatedZone?.excludedVolumeMm3, 3), r.elevatedZone ? (r.elevatedZone.plausibility.ok ? 'yes' : 'doubtful') : null,
+      r.elevatedZone?.plausibility.flags.join('; ') ?? null]);
   }
   return out;
 }
 
 /** One row per liner and loading mode */
 export function seriesCsv(rows: SeriesResult[]): string {
-  const decimals = (j: number) => (j === 3 || j === 7 ? 2 : j === 4 || j === 5 || j === 12 ? 0 : j === 35 || j === 36 ? 3 : 1);
+  const decimals = (j: number) => (j === 3 || j === 7 ? 2 : j === 4 || j === 5 || j === 12 ? 0 : j === 35 || j === 36 || j === 40 || j === 41 || j === 43 ? 3 : 1);
   const L = [SERIES_COLUMNS.join(',')];
   for (const row of seriesTable(rows)) {
     L.push(row.map((v, j) => TEXT_COLS.has(j) ? q(String(v ?? '')) : typeof v === 'number' ? n(v, decimals(j)) : (v ?? '')).join(','));

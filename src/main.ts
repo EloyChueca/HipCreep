@@ -4,10 +4,10 @@
 
 import { defaultCase, type CaseInput } from './model/case.ts';
 import { runDeterministic } from './model/analysis.ts';
-import { analyseSurface, elevationAnalysis, type SurfaceData, type ElevationResult } from './model/surface.ts';
+import { analyseSurface, elevationAnalysis, type SurfaceData, type ElevationResult, type LoadZone } from './model/surface.ts';
 import { parseHipWearInput, type LoadedHipWearCase } from './io/hipwear.ts';
 import { makePhantom } from './io/phantom.ts';
-import { caseFromLoaded, seriesCsv, type SeriesResult } from './model/series.ts';
+import { caseFromLoaded, seriesCsv, loadZoneFor, type SeriesResult } from './model/series.ts';
 import { computeMonteCarlo, computeSeriesCase } from './compute/client.ts';
 import { yieldTask } from './compute/yield.ts';
 import { renderSeriesSetup, renderSeriesResults, type SeriesItem, type SeriesCallbacks } from './ui/series.ts';
@@ -16,7 +16,7 @@ import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson, seriesXlsx } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
 
-const VERSION = '0.13.0';
+const VERSION = '0.14.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -83,11 +83,17 @@ $('file-input').addEventListener('change', async (ev) => {
   const input = ev.target as HTMLInputElement;
   const f = input.files?.[0];
   if (!f) return;
+  // no run while the file is being read (the run would mix the old inputs with the new file)
+  const runBtn = $<HTMLButtonElement>('btn-run');
+  runBtn.disabled = true;
+  $('run-status').textContent = `Reading ${f.name}…`;
   try {
     applyLoaded(parseHipWearInput(await f.text(), f.name));
     $('run-status').textContent = 'File loaded. Review the inputs and run the analysis.';
   } catch (e) {
     $('run-status').textContent = `Could not read ${f.name}: ${(e as Error).message}`;
+  } finally {
+    if (!running) runBtn.disabled = false;
   }
   input.value = '';
 });
@@ -143,7 +149,7 @@ async function runSeries(items: SeriesItem[]): Promise<void> {
       await yieldTask();
       const c = caseFromLoaded(caseInput, it.L);
       c.bodyMassKg = it.bodyMassKg; c.material = it.material; c.irradiation = { ...it.irradiation }; c.exVivoDays = it.exVivoDays; c.implantMonths = it.implantMonths;
-      seriesResults.push(await computeSeriesCase(c, it.L, { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg }));
+      seriesResults.push(await computeSeriesCase(c, it.L, { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg, loadZoneMarginDeg: ui.loadZoneMarginDeg, radiusUncUm: ui.radiusUncUm }));
     }
     if (bar) bar.style.width = '100%';
     const root = $('report');
@@ -152,7 +158,7 @@ async function runSeries(items: SeriesItem[]): Promise<void> {
     const stamp = `${d0.getFullYear()}${p2(d0.getMonth() + 1)}${p2(d0.getDate())}-${p2(d0.getHours())}${p2(d0.getMinutes())}`;
     const xlsxName = `hipcreep-series-${stamp}.xlsx`;
     const res = seriesResults;
-    const settings = { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg };
+    const settings = { refRadius: ui.refRadius, rimBandDeg: ui.rimBandDeg, loadZoneMarginDeg: ui.loadZoneMarginDeg, radiusUncUm: ui.radiusUncUm };
     const caseNow = caseInput;
     const saveXlsx = () => download(xlsxName, seriesXlsx(res, caseNow, settings, VERSION));
     renderSeriesResults(root, items, res, seriesCb, () => download('hipcreep-series.csv', seriesCsv(res), 'text/csv'), saveXlsx);
@@ -188,17 +194,17 @@ $('btn-clear').addEventListener('click', () => {
 });
 
 // ---------- run ----------
-function surfaceFor(L: LoadedHipWearCase, u: UiSettings): { surface: SurfaceData; elevation: ElevationResult } | null {
+function surfaceFor(L: LoadedHipWearCase, u: UiSettings, zone: LoadZone | null): { surface: SurfaceData; elevation: ElevationResult } | null {
   if (!L.mesh) return null;
   // Each radius goes with the centre of its own fit: the measured radius with the free-radius
   // sphere centre (when HipWear exports it), the commercial radius with the original sphere.
   const useMeasured = u.refRadius === 'measured' && !!L.measuredRadiusMm;
   const R = useMeasured ? L.measuredRadiusMm! : L.commercialRadiusMm;
   const center = useMeasured && L.measuredCenter ? L.measuredCenter : L.center;
-  const key = `${R}|${center.join(',')}|${u.rimBandDeg}`;
+  const key = `${R}|${center.join(',')}|${u.rimBandDeg}|${u.radiusUncUm}|${zone ? `${zone.halfAngleDeg.toFixed(2)}|${zone.aboutPole}` : 'all'}`;
   if (surfaceCache?.key === key) return surfaceCache;
   const surface = analyseSurface(L.mesh, { center, radiusMm: R, pole: L.pole, load: L.load });
-  const elevation = elevationAnalysis(surface, L.noiseSigmaUm, L.surfaceUncertaintyUm, u.rimBandDeg);
+  const elevation = elevationAnalysis(surface, L.noiseSigmaUm, L.surfaceUncertaintyUm, u.rimBandDeg, zone ? { zone, radiusUncUm: u.radiusUncUm } : {});
   surfaceCache = { key, surface, elevation };
   return surfaceCache;
 }
@@ -229,15 +235,17 @@ async function run(): Promise<void> {
     const r = readForm(caseInput, ui);
     caseInput = r.c;
     ui = r.ui;
+    // snapshot: the inputs of this run do not change if a file is loaded meanwhile
+    const cRun = caseInput, uRun = ui, LRun = loaded;
     status.textContent = 'Deterministic table…';
     bar.style.width = '2%';
     await yieldTask();
-    const det = runDeterministic(caseInput);
+    const det = runDeterministic(cRun);
     status.textContent = 'Monte Carlo…';
-    const mc = await computeMonteCarlo(caseInput, (f) => { bar.style.width = `${(2 + 93 * f).toFixed(1)}%`; });
-    const surf = loaded ? surfaceFor(loaded, ui) : null;
+    const mc = await computeMonteCarlo(cRun, (f) => { bar.style.width = `${(2 + 93 * f).toFixed(1)}%`; });
+    const surf = LRun ? surfaceFor(LRun, uRun, LRun.mesh ? loadZoneFor(cRun, LRun, det, uRun.loadZoneMarginDeg) : null) : null;
     bar.style.width = '100%';
-    lastReport = { c: caseInput, ui, det, mc, loaded, surface: surf?.surface ?? null, elevation: surf?.elevation ?? null };
+    lastReport = { c: cRun, ui: uRun, det, mc, loaded: LRun, surface: surf?.surface ?? null, elevation: surf?.elevation ?? null };
     render(lastReport);
     status.textContent = `Done: ${mc.n} samples in ${(mc.elapsedMs / 1000).toFixed(1)} s.`;
   } catch (e) {

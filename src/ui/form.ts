@@ -2,6 +2,7 @@
 // HipCreep — input form (sidebar)
 // ============================================================
 
+import { LOAD_ZONE_MARGIN_DEG, RADIUS_UNC_UM } from '../model/series.ts';
 import type { CaseInput } from '../model/case.ts';
 import { LAWS, LAW_IDS, type LawId } from '../model/laws.ts';
 import { MATERIALS, MATERIAL_IDS, THERMAL_LABEL, materialPreset, type MaterialId, type Range, type ThermalTreatment } from '../model/materials.ts';
@@ -10,11 +11,15 @@ export interface UiSettings {
   /** Radius of the original surface for the sphere-to-plane step */
   refRadius: 'measured' | 'commercial';
   rimBandDeg: number;
+  /** Margin around the model's contact zone inside which elevations count as creep (deg) */
+  loadZoneMarginDeg: number;
+  /** Uncertainty of the reference radius for the range of the elevated volume (µm) */
+  radiusUncUm: number;
   /** Use a manual measured penetration when no HipWear file is loaded */
   manualMeasurement: boolean;
 }
 
-export const defaultUi = (): UiSettings => ({ refRadius: 'measured', rimBandDeg: 2, manualMeasurement: false });
+export const defaultUi = (): UiSettings => ({ refRadius: 'measured', rimBandDeg: 2, loadZoneMarginDeg: LOAD_ZONE_MARGIN_DEG, radiusUncUm: RADIUS_UNC_UM, manualMeasurement: false });
 
 type Field =
   | { kind: 'number'; id: string; label: string; unit?: string; step?: number; min?: number; help?: string }
@@ -119,6 +124,9 @@ const SECTIONS: Section[] = [
       { kind: 'select', id: 'refRadius', label: 'Reference radius (zero plane)', options: [['measured', 'Measured cavity radius'], ['commercial', 'Commercial radius']],
         help: 'r = R is the zero plane; penetration > 0, elevations < 0.' },
       { kind: 'number', id: 'rimBandDeg', label: 'Exclude band at the trim edge', unit: '°', step: 0.5, min: 0 },
+      { kind: 'number', id: 'loadZoneMarginDeg', label: 'Load zone: margin around the contact zone', unit: '°', step: 1, min: 0,
+        help: 'Elevations are counted only around the load zone (contact zone of the creep model about the penetration direction, plus this margin). Elevated material elsewhere — damage at retrieval, badly scanned parts, rim impingement — is left out.' },
+      { kind: 'number', id: 'radiusUncUm', label: 'Reference radius uncertainty (for the elevated-volume range)', unit: 'µm', step: 1, min: 0 },
     ],
   },
 ];
@@ -217,6 +225,8 @@ export function writeForm(c: CaseInput, ui: UiSettings): void {
   setNum('seed', c.seed);
   setSel('refRadius', ui.refRadius);
   setNum('rimBandDeg', ui.rimBandDeg);
+  setNum('loadZoneMarginDeg', ui.loadZoneMarginDeg);
+  setNum('radiusUncUm', ui.radiusUncUm);
   syncEnabled();
 }
 
@@ -300,6 +310,8 @@ export function readForm(base: CaseInput, uiBase: UiSettings): { c: CaseInput; u
     ...uiBase,
     refRadius: getSel('refRadius', uiBase.refRadius) as UiSettings['refRadius'],
     rimBandDeg: Math.max(0, getNum('rimBandDeg', uiBase.rimBandDeg)),
+    loadZoneMarginDeg: Math.max(0, getNum('loadZoneMarginDeg', uiBase.loadZoneMarginDeg)),
+    radiusUncUm: Math.max(0, getNum('radiusUncUm', uiBase.radiusUncUm)),
     manualMeasurement: manual,
   };
   return { c, ui };

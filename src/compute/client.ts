@@ -11,7 +11,7 @@ import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import { runMonteCarlo, type McResult } from '../model/analysis.ts';
 import { runSeriesCase, type SeriesResult } from '../model/series.ts';
 
-type SeriesOpt = { refRadius: 'measured' | 'commercial'; rimBandDeg: number };
+type SeriesOpt = { refRadius: 'measured' | 'commercial'; rimBandDeg: number; loadZoneMarginDeg?: number; radiusUncUm?: number };
 
 export type WorkerRequest =
   | { id: number; type: 'mc'; c: CaseInput }

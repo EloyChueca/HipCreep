@@ -229,16 +229,23 @@ Caveats shown in the report: each µm of error in `R_ref` changes `V_elev` by `A
 form error of the liner also produces elevations — they should sit at the edge of the contact zone, where creep flow is
 expected (Zeman et al. 2018 measured 20–30 µm elevations at the rim after the run-in).
 
-### Elevated zone as measured (v0.13)
+### Elevated material around the load zone (v0.14)
 
-Reported for every liner with a surface, without any creep or wear model and without threshold: the area and the
-volume of all the material above the original sphere (rim band excluded), the highest point and its angle from the
-pole, and the mean elevation of the highest 1 mm² (less sensitive to a single noisy vertex). The volume above 2σ of
-the scanner noise with the noise floor subtracted (the value used for the minimum creep) is given next to it. On the
-phantom the measured volume is within 4 % of the true elevation volume; the highest point exceeds the true peak by
-about 3σ of the noise. Elevations also come from errors of the reference radius or centre (≈ analysed area × radius
-error: ≈ 0.5–0.8 mm³ per µm), out-of-roundness and rim or flange features, so large volumes on short implantations
-or peaks next to the rim point to the reference rather than to creep.
+Only elevations **around the load zone** count: the contact zone of the creep model (static, in vivo — the widest)
+plus a margin (15° by default), about the penetration direction; when there is no direction (not detected, or
+beyond the cup face) the zone is a cone about the pole whose half-angle also includes the load angle. Elevated
+material elsewhere — damage at retrieval, badly scanned parts, rim contact — is left out and reported apart. Both
+the elevated-zone figures and the minimum creep use this zone.
+
+Reported without any creep or wear model and without threshold: area and volume of the material above the original
+sphere (rim band excluded), its range with the reference radius ± its uncertainty (setting, 5 µm by default;
+≈ 0.5–0.8 mm³ per µm), the highest point and its angle from the pole, the mean of the highest 1 mm², the volume
+left out, and the volume above 2σ of the noise with the noise floor subtracted. On the phantom the measured volume
+is within 4 % of the true elevation volume; the highest point exceeds the true peak by about 3σ of the noise.
+
+**Plausibility as creep** — doubtful when the elevated volume above the noise exceeds the largest remaining creep
+volume the model allows (static, P95, × the model's creep shape area), when the highest point lies within 10° of the
+analysed (trim) edge, or when nothing is above the noise.
 
 ## 7. Not modelled
 

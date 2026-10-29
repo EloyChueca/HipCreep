@@ -152,8 +152,43 @@ export interface ElevationResult {
   elevationThetaDeg: number;
   /** Change of the elevation volume per µm of error in the reference radius (mm³/µm) */
   radiusSensitivityMm3PerUm: number;
-  /** Measured elevated zone, no model and no threshold: everything above the original sphere */
+  /** Measured elevated zone, no model and no threshold, inside the load zone (everything if no zone) */
   raw: ElevatedZone;
+  /** The same over the whole surface (to show what the load zone left out) */
+  rawAll: ElevatedZone;
+  /** Load zone used, null = whole surface */
+  zone: LoadZone | null;
+  /** Elevated volume in the load zone with the reference radius −/+ radiusUncUm (mm³): [low, high] */
+  rawRange: [number, number];
+  radiusUncUm: number;
+  /** Polar angle of the analysed edge (trim edge minus the rim band), deg */
+  edgeThetaDeg: number;
+}
+
+/**
+ * Zone around the joint load where creep can push material above the original surface: the contact
+ * zone of the creep model plus a margin, about the load axis (the penetration direction), or about the
+ * cup pole when the direction is unknown (half-angle then includes the load angle). Elevations outside
+ * it (damage at retrieval, badly scanned parts, rim impingement) are not counted.
+ */
+export interface LoadZone {
+  halfAngleDeg: number;
+  aboutPole: boolean;
+}
+
+export interface ElevationOptions {
+  kList?: number[];
+  sigmaScales?: number[];
+  zone?: LoadZone;
+  /** Uncertainty of the reference radius (µm) for the range of the elevated volume */
+  radiusUncUm?: number;
+}
+
+export function loadZoneMask(s: SurfaceData, z: LoadZone): Uint8Array {
+  const m = new Uint8Array(s.n);
+  const lim = z.halfAngleDeg * Math.PI / 180;
+  for (let v = 0; v < s.n; v++) m[v] = (z.aboutPole ? s.theta[v] : s.psi[v]) <= lim ? 1 : 0;
+  return m;
 }
 
 /** The material above the original surface as measured (v0.13) */
@@ -169,14 +204,15 @@ export interface ElevatedZone {
   peak1mm2Um: number;
 }
 
-/** Volume, area and peak of the material above the original sphere (rim band excluded) */
-export function elevatedZone(s: SurfaceData, rimBandDeg = 2): ElevatedZone {
+/** Volume, area and peak of the material above the original sphere (rim band excluded; inside `mask` if
+ *  given). `shiftUm` makes the reference radius that much smaller (fewer elevations); negative: larger. */
+export function elevatedZone(s: SurfaceData, rimBandDeg = 2, mask: Uint8Array | null = null, shiftUm = 0): ElevatedZone {
   const thetaMax = s.maxThetaRad - rimBandDeg * Math.PI / 180;
   let vol = 0, area = 0, peak = 0, peakTheta = NaN;
   const idx: number[] = [];
   for (let v = 0; v < s.n; v++) {
-    if (s.theta[v] > thetaMax) continue;
-    const e = -s.devUm[v];
+    if (s.theta[v] > thetaMax || (mask && !mask[v])) continue;
+    const e = -s.devUm[v] - shiftUm;
     if (e <= 0) continue;
     vol += s.area[v] * e; area += s.area[v]; idx.push(v);
     if (e > peak) { peak = e; peakTheta = s.theta[v]; }
@@ -186,7 +222,7 @@ export function elevatedZone(s: SurfaceData, rimBandDeg = 2): ElevatedZone {
   for (const v of idx) {
     if (a1 >= 1) break;
     const da = Math.min(s.area[v], 1 - a1);
-    w1 += da * -s.devUm[v]; a1 += da;
+    w1 += da * (-s.devUm[v] - shiftUm); a1 += da;
   }
   return { volumeMm3: vol * 1e-3, areaMm2: area, peakUm: peak, peakThetaDeg: peakTheta * 180 / Math.PI, peak1mm2Um: a1 > 0 ? w1 / a1 : 0 };
 }
@@ -204,12 +240,15 @@ export function expectedExcess(sigma: number, a: number): number {
  * σ_eff combines scanner noise and the surface (paint) uncertainty.
  */
 export function elevationAnalysis(
-  s: SurfaceData, noiseSigmaUm: number, surfaceUncUm: number, rimBandDeg = 2, kList = [2, 1, 3], sigmaScales = [0.8, 1, 1.2],
+  s: SurfaceData, noiseSigmaUm: number, surfaceUncUm: number, rimBandDeg = 2, opts: ElevationOptions = {},
 ): ElevationResult {
+  const kList = opts.kList ?? [2, 1, 3], sigmaScales = opts.sigmaScales ?? [0.8, 1, 1.2];
+  const mask = opts.zone ? loadZoneMask(s, opts.zone) : null;
+  const inZone = (v: number) => !mask || mask[v] === 1;
   const sigmaEff = Math.sqrt(noiseSigmaUm * noiseSigmaUm + surfaceUncUm * surfaceUncUm) || 1;
   const thetaMax = s.maxThetaRad - rimBandDeg * Math.PI / 180;
   let A = 0;
-  for (let v = 0; v < s.n; v++) if (s.theta[v] <= thetaMax) A += s.area[v];
+  for (let v = 0; v < s.n; v++) if (s.theta[v] <= thetaMax && inZone(v)) A += s.area[v];
   const rows: ElevationRow[] = [];
   for (const k of kList) {
     for (const sc of sigmaScales) {
@@ -217,7 +256,7 @@ export function elevationAnalysis(
       const thr = k * sig;
       let raw = 0, ea = 0;
       for (let v = 0; v < s.n; v++) {
-        if (s.theta[v] > thetaMax) continue;
+        if (s.theta[v] > thetaMax || !inZone(v)) continue;
         const e = -s.devUm[v] - thr;
         if (e > 0) { raw += s.area[v] * e; ea += s.area[v]; }
       }
@@ -234,6 +273,7 @@ export function elevationAnalysis(
     if (s.theta[v] > thetaMax) continue;
     const e = s.devUm[v] - nominal.thresholdUm;
     if (e > 0) pen += s.area[v] * e;
+    if (!inZone(v)) continue;
     const el = -s.devUm[v] - nominal.thresholdUm;
     if (el > 0) { const w = s.area[v] * el; wPsi += w * s.psi[v]; wTheta += w * s.theta[v]; wSum += w; }
   }
@@ -247,7 +287,15 @@ export function elevationAnalysis(
     elevationPsiDeg: wSum > 0 ? (wPsi / wSum) * 180 / Math.PI : NaN,
     elevationThetaDeg: wSum > 0 ? (wTheta / wSum) * 180 / Math.PI : NaN,
     radiusSensitivityMm3PerUm: A * 1e-3,
-    raw: elevatedZone(s, rimBandDeg),
+    raw: elevatedZone(s, rimBandDeg, mask),
+    rawAll: elevatedZone(s, rimBandDeg, null),
+    zone: opts.zone ?? null,
+    rawRange: (() => {
+      const d = Math.max(0, opts.radiusUncUm ?? 0);
+      return [elevatedZone(s, rimBandDeg, mask, d).volumeMm3, elevatedZone(s, rimBandDeg, mask, -d).volumeMm3] as [number, number];
+    })(),
+    radiusUncUm: Math.max(0, opts.radiusUncUm ?? 0),
+    edgeThetaDeg: thetaMax * 180 / Math.PI,
   };
 }
 
