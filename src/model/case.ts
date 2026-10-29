@@ -16,6 +16,8 @@ export interface MeasuredPenetration {
   sdUm: number;
   /** Detection limit reported by HipWear (µm), if any */
   detectionLimitUm?: number | null;
+  /** The detection limit was computed by HipCreep (HipWear gives it only when nothing is detected) */
+  detectionLimitComputed?: boolean;
   /** Penetration (wear) volume (mm³) and its SD, if available */
   volumeMm3?: number | null;
   volumeSdMm3?: number | null;

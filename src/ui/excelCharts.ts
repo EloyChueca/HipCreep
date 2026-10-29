@@ -9,7 +9,8 @@
 //     measured D ± 2 SD, detection limit and elevation bound;
 //   • wear vs years in vivo (segment = the two recovery scenarios, as on the
 //     page), one series per polyethylene, each point labelled with its liner;
-//   • comparison: dynamic vs static for both charts.
+//   • comparison: dynamic vs static remaining creep per liner (chart) and wear
+//     (table with median, 90 % interval and the two scenario medians).
 // ============================================================
 
 import type { Cell, Sheet, SheetChart } from '../io/xlsx.ts';
@@ -54,6 +55,7 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
   add('D2sd', '2 × SD of D (µm)', (r, row) => (meas(r) ? { f: `2*${L('Dsd')}${row}`, v: round(2 * meas(r)!.sdUm, 2) } : null));
   add('nd', 'D not detected', (r) => (r.measured?.notDetected ? 'yes' : r.measured ? 'no' : ''));
   add('lod', 'Detection limit (µm)', (r) => round(r.measured?.detectionLimitUm ?? null, 0));
+  add('lodsrc', 'Detection limit source', (r) => (r.measured?.detectionLimitUm == null ? '' : r.measured.detectionLimitComputed ? 'computed by HipCreep with the HipWear formula (penetration detected)' : 'HipWear (penetration not detected)'));
   add('elev', 'Elevation bound: minimum remaining creep (µm)', (r) => round(r.elevationMinCreepUm?.nominal));
 
   const minusF = (lo: string, mid: string) => (_r: SeriesResult, row: number, i: number) =>
@@ -169,18 +171,31 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
       ],
     });
   };
-  const compareWear = (): string => chartXml({
-    title: 'Dynamic vs static: estimated wear vs time in vivo', layout: 'scatter', xTitle: 'years in vivo', yTitle: 'estimated wear W (µm)',
-    series: [
-      { kind: 'scatter', name: 'Dynamic', color: C.dyn, marker: 'circle', markerSize: 8, x: num('years'), y: num('d_w'), err: { plus: num('d_wseg_plus'), minus: num('d_wseg_minus'), widthPt: 2.25, noEndCap: true }, labels: labelsFor('d_w') },
-      { kind: 'scatter', name: 'Static', color: C.stat, marker: 'square', markerSize: 7, x: num('years'), y: num('s_w'), err: { plus: num('s_wseg_plus'), minus: num('s_wseg_minus'), widthPt: 2.25, noEndCap: true }, labels: labelsFor('s_w') },
-    ],
-  });
+  /** Comparison of the wear as a table: values and their uncertainty, each cell linked to the Chart data sheet */
+  const wearTable = (): { rows: Cell[][]; bold: number[] } => {
+    const link = (key: string, i: number): Cell => (ok(val(key, i)) ? { f: `'${CHART_DATA_SHEET}'!$${L(key)}$${first + i}`, v: val(key, i) } : null);
+    const head = ['Liner', 'Polyethylene', 'Years in vivo', 'D (µm)', 'SD of D (µm)', 'Detection limit (µm)',
+      'Dynamic W median (µm)', 'Dynamic W P5', 'Dynamic W P95', 'Dynamic W, L&P median', 'Dynamic W, long-loading median',
+      'Static W median (µm)', 'Static W P5', 'Static W P95', 'Static W, L&P median', 'Static W, long-loading median',
+      'Dynamic − static (median, µm)', 'Note'];
+    const rows: Cell[][] = [head];
+    res.forEach((r, i) => {
+      const dW = val('d_w', i), sW = val('s_w', i);
+      const diff: Cell = ok(dW) && ok(sW) ? { f: `${(link('d_w', i) as { f: string }).f}-${(link('s_w', i) as { f: string }).f}`, v: round(dW - sW, 1) } : null;
+      const note = r.measured?.notDetected ? `Penetration not detected (< ${val('lod', i) ?? '?'} µm): wear not estimated`
+        : !r.measured ? 'No measured penetration: wear not estimated' : '';
+      rows.push([r.caseId, shortMat(r), link('years', i), link('D', i), link('Dsd', i), link('lod', i),
+        link('d_w', i), link('d_w_p5', i), link('d_w_p95', i), link('d_wlp', i), link('d_wlong', i),
+        link('s_w', i), link('s_w_p5', i), link('s_w_p95', i), link('s_wlp', i), link('s_wlong', i), diff, note]);
+    });
+    return { rows, bold: [0] };
+  };
 
   const hasWear = (p: string) => (values.get(`${p}_w`) ?? []).some(ok);
-  const CREEP_NOTE = 'Bars: median remaining creep at the scan; whiskers: 90 % interval (P5–P95). Diamond: measured D ± 2 SD (missing when not detected). Dash: detection limit. Triangle: minimum remaining creep from the elevations. Wear is the gap between D and the remaining creep.';
-  const WEAR_NOTE = 'Dot: median wear (both recovery scenarios); vertical segment: from the long-loading to the L&P median (the recovery uncertainty). Labels: liner. 90 % intervals in the Chart data sheet.';
-  const chartSheet = (name: string, heading: string, parts: { note: string; xml: string; title: string }[]): Sheet => {
+  const CREEP_NOTE = 'Bars: median remaining creep at the scan; whiskers: 90 % interval (P5–P95). Diamond: measured D ± 2 SD (no diamond when HipWear did not detect a penetration: D is then only known to be below the detection limit). Dash: detection limit. Triangle: minimum remaining creep from the elevations. Wear is the gap between D and the remaining creep.';
+  const WEAR_NOTE = 'Dot: median wear (both recovery scenarios); vertical segment: from the long-loading to the L&P median (the recovery uncertainty). Labels: liner. Liners without a detected penetration have no wear estimate and are not plotted. 90 % intervals in the Chart data sheet.';
+  const chartSheet = (name: string, heading: string, parts: { note: string; xml: string; title: string }[],
+    table?: { title: string; note: string; rows: Cell[][]; bold: number[] }): Sheet => {
     // explanations first, charts below them (a chart never covers a text row)
     const rows: Cell[][] = [[heading], [`Editable charts: the series point at the '${CHART_DATA_SHEET}' sheet (values in µm).`]];
     parts.forEach((p, i) => rows.push([`Chart ${i + 1} — ${p.title}: ${p.note}`]));
@@ -191,7 +206,15 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
       charts.push({ xml: p.xml, col: 0, row: r, widthPx: CHART_W, heightPx: CHART_H, name: p.title });
       r += Math.ceil(CHART_H / 15) + 4;
     }
-    return { name, rows, boldRows, charts, fitWidth: true };
+    if (table) {
+      while (rows.length < r) rows.push([]);
+      rows.push([table.title]); boldRows.push(rows.length - 1);
+      rows.push([table.note]);
+      const t0 = rows.length;
+      rows.push(...table.rows);
+      for (const b of table.bold) boldRows.push(t0 + b);
+    }
+    return { name, rows, boldRows, charts, fitWidth: true, widths: table ? [18, 22, ...Array(16).fill(15), 50] : undefined };
   };
   const modeSheet = (mode: Loading) => {
     const p = mode === 'dynamic' ? 'd' : 's', M = MODE_NAME[mode];
@@ -200,7 +223,11 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
     return chartSheet(M, `${M} loading mode`, parts);
   };
   const cmpParts = [{ note: 'Remaining creep with both recovery scenarios pooled. ' + CREEP_NOTE.replace('Bars: median remaining creep at the scan; ', 'Bars: median; '), xml: compareCreep(), title: 'Dynamic vs static creep' }];
-  if (hasWear('d') || hasWear('s')) cmpParts.push({ note: WEAR_NOTE.replace('Labels: liner.', 'Labels: liner (dynamic: circles, static: squares).'), xml: compareWear(), title: 'Dynamic vs static wear' });
+  const cmpTable = hasWear('d') || hasWear('s') ? {
+    title: 'Dynamic vs static: estimated wear W = D − remaining creep (µm)',
+    note: 'Median and 90 % interval (P5–P95) of the Monte Carlo with both recovery scenarios, and the median of each scenario. Cells linked to the Chart data sheet.',
+    ...wearTable(),
+  } : undefined;
 
-  return [modeSheet('dynamic'), modeSheet('static'), chartSheet('Comparison', 'Dynamic vs static', cmpParts), dataSheet];
+  return [modeSheet('dynamic'), modeSheet('static'), chartSheet('Comparison', 'Dynamic vs static', cmpParts, cmpTable), dataSheet];
 }

@@ -58,7 +58,9 @@ export interface LoadedHipWearCase {
   thicknessSdMm: number | null;
   clearanceMm: number | null;
   loadAngleDeg: number | null;
-  measured: { penetrationUm: number; sdUm: number; detectionLimitUm: number | null; volumeMm3: number | null; volumeSdMm3: number | null; notDetected: boolean } | null;
+  measured: { penetrationUm: number; sdUm: number; detectionLimitUm: number | null; volumeMm3: number | null; volumeSdMm3: number | null; notDetected: boolean;
+    /** Detection limit computed by HipCreep with HipWear's formula (the file only gives it when nothing is detected) */
+    detectionLimitComputed?: boolean } | null;
   center: Vec3;
   /** Centre of the measured-radius sphere (null if not exported) */
   measuredCenter: Vec3 | null;
@@ -144,6 +146,14 @@ export function parseHipWearInput(text: string, name = 'input.json'): LoadedHipW
       volumeSdMm3: isNum(w.volumeSdMm3) ? w.volumeSdMm3 : null,
       notDetected: false,
     };
+    // HipWear writes the detection limit only when nothing is detected; for a detected penetration compute it
+    // with HipWear's own calibration (WearAnalysis.detectionLimitUm): max(50 + 6σ + 16f, 50 + 1.3e), up to 10 µm
+    if (lod == null && isNum(j.uncertainty?.noiseSigmaUm)) {
+      const sig = Math.max(0, j.uncertainty!.noiseSigmaUm!), form = Math.max(0, isNum(j.uncertainty?.formRmsUm) ? j.uncertainty!.formRmsUm! : 0);
+      const excess = Rm != null ? Math.abs(Rm - Rc) * 1000 : 0;
+      measured.detectionLimitUm = Math.ceil(Math.max(50 + 6 * sig + 16 * form, 50 + 1.3 * excess) / 10) * 10;
+      measured.detectionLimitComputed = true;
+    }
     if (!isNum(Dsd)) warnings.push('No uncertainty for the linear penetration: set it manually.');
     if (useCorr) warnings.push('Using the linear penetration corrected for the cavity-radius excess.');
   } else {

@@ -70,7 +70,7 @@ unless the key says `Um` (µm), angles in degrees. Unknown values may be omitted
 | `wear.linearWearCorrectedUm`, `…SdUm` | optional | `TwoSphereResult.linearCorrectedMm`, `.linearCorrectedSdMm` | used instead of D when present |
 | `wear.volumeMm3`, `volumeSdMm3` | optional | `WearVolumeResult.wearVolume`, `TwoSphereResult.volumeSdMm3` | reported |
 | `wear.directionAngleDeg` | recommended | `TwoSphereResult.directionAngleDeg` | load angle |
-| `wear.detectionLimitUm` | optional | `TwoSphereResult.detectionLimitUm` | small-signal verdict; `linearWearUm = 0` together with a detection limit means **not detected** (0 ≤ D < limit): HipCreep then compares the remaining creep with the limit instead of splitting D into creep and wear |
+| `wear.detectionLimitUm` | optional | `TwoSphereResult.detectionLimitUm` | small-signal verdict; `linearWearUm = 0` together with a detection limit means **not detected** (0 ≤ D < limit): HipCreep then compares the remaining creep with the limit instead of splitting D into creep and wear. HipWear writes it only when nothing is detected; for a detected penetration HipCreep (v0.10.1) computes it with HipWear's calibration `max(50 + 6σ + 16f, 50 + 1.3e)` rounded up to 10 µm (σ = `uncertainty.noiseSigmaUm`, f = `uncertainty.formRmsUm`, e = \|measured − commercial radius\| in µm) |
 | `uncertainty.noiseSigmaUm` | recommended | `TwoSphereResult.noiseSigmaUm` | elevation thresholds, noise floor |
 | `uncertainty.surfaceUncertaintyUm` | optional | `TwoSphereResult.surfaceUncertaintyUm` | added to σ |
 | `uncertainty.formRmsUm` | optional | `TwoSphereResult.formRmsUm` | reported |
