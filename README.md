@@ -17,7 +17,7 @@ liners, using the results of [HipWear](https://github.com/jpoves-a11y/GeoWear).
   surface. When HipWear detects no penetration, the remaining creep is compared with the detection limit instead.
 * Two **recovery scenarios** (Lee & Pienkowski / long loading), the remaining creep vs **time before scanning**, and a
   **sensitivity analysis** (which inputs drive the uncertainty).
-* **Series mode**: several HipWear exports at once, with a comparison table, charts, CSV and an Excel file (.xlsx: results, editable Excel charts for the dynamic and static modes and their comparison, linked to a chart-data sheet, settings) downloaded automatically when the series finishes. The Monte Carlo runs in a Web Worker, so it keeps its speed when the tab is in the background — to analyse a retrieval
+* **Series mode**: several HipWear exports at once; dynamic and static as two independent Monte Carlo simulations, each with its table and charts, a dynamic-vs-static table per liner, wear with L&P vs long-loading recovery (table and charts), charts, CSV and an Excel file (.xlsx: results, editable Excel charts for the dynamic and static modes and their comparison, linked to a chart-data sheet, settings) downloaded automatically when the series finishes. The Monte Carlo runs in a Web Worker, so it keeps its speed when the tab is in the background — to analyse a retrieval
   collection.
 
 The method, equations, parameter ranges and references are in [docs/MODEL.md](docs/MODEL.md); the input file

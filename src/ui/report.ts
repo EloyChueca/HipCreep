@@ -222,7 +222,7 @@ function renderMonteCarloSection(root: HTMLElement, d: ReportData): void {
   const { c, mc } = d;
   const S = mc.summary;
   const sec = section(root, 'Monte Carlo ranges',
-    `Each sample draws one law and every uncertain parameter from its range (force ${num(c.peakForceBW.lo)}–${num(c.peakForceBW.hi)} BW, gait cycles, k, E, ν, wall thickness, clearance, Ea, material creep factor, extrapolations, recovery). Bars: 90 % interval, box: 50 %, dot: median.`);
+    `Two independent Monte Carlo simulations, one for the dynamic and one for the static loading mode (${mc.n} samples each, separate random streams). Each sample draws one law and every uncertain parameter from its range (force ${num(c.peakForceBW.lo)}–${num(c.peakForceBW.hi)} BW, gait cycles, k, E, ν, wall thickness, clearance, Ea, material creep factor, extrapolations, recovery). Bars: 90 % interval, box: 50 %, dot: median.`);
   const rr: RangeRow[] = [];
   for (const mode of MODES) {
     mc.laws.forEach((id) => {

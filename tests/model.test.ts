@@ -316,7 +316,7 @@ test('excel charts: chart parts, references to the data sheet and liner labels',
   const base = defaultCase(); base.samples = 60;
   const r = await runSeriesCase(caseFromLoaded(base, L), L, { refRadius: 'measured', rimBandDeg: 2 });
   const sheets = seriesChartSheets([r, { ...r, caseId: 'RV-H032' }]);
-  assert.deepEqual(sheets.map((s) => s.name), ['Dynamic', 'Static', 'Comparison', 'Chart data']);
+  assert.deepEqual(sheets.map((s) => s.name), ['Dynamic', 'Static', 'Comparison', 'Wear L&P vs long', 'Chart data']);
   for (const s of sheets.slice(0, 2)) assert.equal(s.charts!.length, 2);
   assert.equal(sheets[2].charts!.length, 1);                                      // comparison: creep chart + wear table
   assert.ok(sheets[2].rows.some((row) => row[0] === 'RV-H032'));
@@ -324,12 +324,13 @@ test('excel charts: chart parts, references to the data sheet and liner labels',
   assert.ok(xml.includes("'Chart data'!$A$2:$A$3"));            // liner names as categories
   assert.ok(xml.includes('<c:errValType val="cust"/>'));
   assert.ok(sheets[0].charts![1].xml.includes('<a:t>RV-H032</a:t>'));   // point label
-  const data = sheets[3].rows;
+  assert.equal(sheets[3].charts!.length, 2);
+  const data = sheets[4].rows;
   assert.equal(data.length, 3);
   assert.ok(data[1].some((c) => typeof c === 'object' && c !== null && 'f' in c));   // formulas
   const b = writeXlsx(sheets);
   const txt = new TextDecoder().decode(b);
-  assert.ok(txt.includes('xl/charts/chart5.xml') && txt.includes('drawingml.chart+xml'));
+  assert.ok(txt.includes('xl/charts/chart7.xml') && txt.includes('drawingml.chart+xml'));
   assert.ok(chartXml({ title: 't', layout: 'scatter', series: [] }).startsWith('<?xml'));
 });
 
@@ -340,4 +341,15 @@ test('detection limit for a detected penetration: HipWear formula', () => {
   // max(50 + 6·12 + 16·3, 50 + 1.3·|14.05 − 14|·1000) = max(170, 115) → 170
   assert.equal(L.measured!.detectionLimitUm, 170);
   assert.equal(L.measured!.detectionLimitComputed, true);
+});
+
+test('Monte Carlo: dynamic and static are independent simulations', async () => {
+  const c = defaultCase(); c.samples = 50;
+  const mc = await runMonteCarlo(c);
+  const a = mc.inputs.dynamic.params.forceBW, b = mc.inputs.static.params.forceBW;
+  let same = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] === b[i]) same++;
+  assert.equal(same, 0);
+  assert.equal(mc.modes.dynamic.creepUm.length, 50);
+  assert.equal(mc.modes.static.creepUm.length, 50);
 });

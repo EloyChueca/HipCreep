@@ -68,6 +68,7 @@ export interface SensitivityRow { key: string; label: string; rho: number }
 /** Inputs ranked by |ρ| with the chosen output of one loading mode */
 export function sensitivity(mc: McResult, mode: Loading, output: 'remaining' | 'wear' | 'creep'): SensitivityRow[] {
   const ms = mc.modes[mode];
+  const inp = mc.inputs[mode];
   const y = output === 'remaining' ? ms.remainingUm : output === 'wear' ? ms.wearUm : ms.creepUm;
   if (!y) return [];
   const rows: SensitivityRow[] = [];
@@ -78,13 +79,13 @@ export function sensitivity(mc: McResult, mode: Loading, output: 'remaining' | '
   for (const k of PARAM_KEYS) {
     if (k === 'cyclesPerYear' && mode === 'static') continue;   // no effect in static mode
     if (k === 'r10k' && output === 'creep') continue;
-    push(k, mc.params[k]);
+    push(k, inp.params[k]);
   }
-  if (mc.laws.length > 1) push('law', mc.lawIndex);
-  if (output !== 'creep') push('scenario', mc.scenario);
-  push('leeLog', mc.leeLog);
-  if (output !== 'creep') push('kineticsLog', mc.kineticsLog);
-  if (output === 'wear' && mc.measuredUm) push('measuredD', mc.measuredUm);
+  if (mc.laws.length > 1) push('law', inp.lawIndex);
+  if (output !== 'creep') push('scenario', inp.scenario);
+  push('leeLog', inp.leeLog);
+  if (output !== 'creep') push('kineticsLog', inp.kineticsLog);
+  if (output === 'wear' && inp.measuredUm) push('measuredD', inp.measuredUm);
   return rows.sort((a, b) => Math.abs(b.rho) - Math.abs(a.rho));
 }
 
@@ -96,22 +97,23 @@ export interface RecoveryCurve {
 /** Remaining creep (and wear, with a measurement) as a function of the days unloaded before scanning */
 export function recoveryCurve(mc: McResult, c: CaseInput, mode: Loading, days: number[]): RecoveryCurve {
   const ms = mc.modes[mode];
+  const inp = mc.inputs[mode];
   const out: RecoveryCurve = { days, byScenario: {} };
   (['lp', 'long'] as const).forEach((sc, si) => {
     const idx: number[] = [];
-    for (let i = 0; i < mc.n; i++) if (mc.scenario[i] === si) idx.push(i);
+    for (let i = 0; i < mc.n; i++) if (inp.scenario[i] === si) idx.push(i);
     if (!idx.length) return;
     const rem = { p5: [] as number[], p50: [] as number[], p95: [] as number[] };
-    const wear = mc.measuredUm && !c.measured?.notDetected ? { p5: [] as number[], p50: [] as number[], p95: [] as number[] } : null;
+    const wear = inp.measuredUm && !c.measured?.notDetected ? { p5: [] as number[], p50: [] as number[], p95: [] as number[] } : null;
     for (const d of days) {
       const r = new Float64Array(idx.length), w = wear ? new Float64Array(idx.length) : null;
       idx.forEach((i, k) => {
         const R = recoveredFraction({
-          r10k: mc.params.r10k[i], timeS: d * SECONDS_PER_DAY, tempC: c.recoveryTempC,
-          eaKcal: mc.params.eaKcal[i], kinetics: mc.kineticsLog[i] ? 'log' : 'plateau',
+          r10k: inp.params.r10k[i], timeS: d * SECONDS_PER_DAY, tempC: c.recoveryTempC,
+          eaKcal: inp.params.eaKcal[i], kinetics: inp.kineticsLog[i] ? 'log' : 'plateau',
         });
         r[k] = ms.creepUm[i] * (1 - R);
-        if (w) w[k] = mc.measuredUm![i] - r[k];
+        if (w) w[k] = inp.measuredUm![i] - r[k];
       });
       r.sort();
       rem.p5.push(percentile(r, 0.05)); rem.p50.push(percentile(r, 0.5)); rem.p95.push(percentile(r, 0.95));

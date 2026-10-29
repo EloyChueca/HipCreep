@@ -7,6 +7,7 @@
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import { MATERIALS, MATERIAL_IDS, THERMAL_LABEL, type MaterialId, type Irradiation, type ThermalTreatment } from '../model/materials.ts';
 import type { SeriesResult, ElevationStatus } from '../model/series.ts';
+import type { Loading } from '../model/laws.ts';
 import { fmt, escapeHtml, cssVar } from './format.ts';
 import { svg, add, niceTicks, showTip, hideTip } from './charts.ts';
 
@@ -96,29 +97,11 @@ export function renderSeriesSetup(root: HTMLElement, items: SeriesItem[], cb: Se
 
 const ELEV_TXT: Record<ElevationStatus, string> = { consistent: '✓', 'median-below': '≈', below: '✗' };
 
-/** Results of the whole series */
+/** Results of the whole series: one section per loading mode (independent Monte Carlo), then the comparisons */
 export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res: SeriesResult[], cb: SeriesCallbacks, csv: () => void, xlsx?: () => void): void {
-  const sec = section(root, 'Series results — dynamic mode',
-    'Median and 90 % interval of the Monte Carlo for each liner, in µm. <b>L&amp;P</b> and <b>long</b> are the two recovery scenarios (Lee &amp; Pienkowski / long loading). <b>Elevation bound</b>: minimum remaining creep from the material pushed above the original sphere (sphere → plane); ✓ the model is consistent with it in that scenario, ≈ the model median is below it, ✗ the model is below it (under-predicts). The static mode is in the CSV.');
-  const cell = (s: { p50: number; p5: number; p95: number } | null | undefined) => s ? `<b>${fmt(s.p50)}</b><div class="range">${fmt(s.p5)} – ${fmt(s.p95)}</div>` : '—';
-  const body = res.map((r, i) => {
-    const m = r.modes.dynamic, lp = m.byScenario.lp, lg = m.byScenario.long;
-    const D = r.measured ? (r.measured.notDetected ? `n.d.<div class="range">&lt; ${fmt(r.measured.detectionLimitUm)}</div>` : `<b>${fmt(r.measured.penetrationUm)}</b><div class="range">± ${fmt(r.measured.sdUm)}</div>`) : '—';
-    const ev = r.elevationMinCreepUm ? `<b>${fmt(r.elevationMinCreepUm.nominal)}</b><div class="range">${fmt(r.elevationMinCreepUm.lo)} – ${fmt(r.elevationMinCreepUm.hi)}</div><div class="range">L&amp;P ${lp?.elevation ? ELEV_TXT[lp.elevation] : '—'} · long ${lg?.elevation ? ELEV_TXT[lg.elevation] : '—'}</div>` : '—';
-    const vd = m.verdict ? `<span class="badge ${m.verdict.level}" title="${escapeHtml(m.verdict.detail)}">${m.verdict.level === 'separable' ? '✓' : m.verdict.level === 'inconsistent' ? '!' : '≈'}</span> ${escapeHtml(m.verdict.title)}` : '—';
-    return `<tr><td>${i + 1}</td><td><b>${escapeHtml(r.caseId)}</b><div class="range"><span class="swatch" style="background:${cssVar(MAT_COLOR[r.material])}"></span>${escapeHtml(r.materialLabel.split(',')[0])}</div></td>
-      <td>${fmt(r.years)}</td><td>${D}</td><td>${cell(m.creep)}</td><td>${cell(lp?.remaining)}</td><td>${cell(lg?.remaining)}</td>
-      <td>${cell(lp?.wear)}</td><td>${cell(lg?.wear)}</td><td>${ev}</td><td class="vd">${vd}</td>
-      <td><button class="btn s-open" data-i="${i}" type="button">Open</button></td></tr>`;
-  }).join('');
-  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
-    <thead><tr><th rowspan="2">#</th><th rowspan="2">Case</th><th rowspan="2">Years</th><th rowspan="2">D</th><th rowspan="2">C<sub>max</sub></th><th colspan="2">Remaining creep</th><th colspan="2">Wear W</th><th rowspan="2">Elevation bound</th><th rowspan="2">Verdict</th><th rowspan="2"></th></tr>
-    <tr><th>L&amp;P</th><th>long</th><th>L&amp;P</th><th>long</th></tr></thead>
-    <tbody>${body}</tbody></table></div>`);
-  sec.querySelectorAll('.s-open').forEach((b) => b.addEventListener('click', () => cb.onOpen(items[+(b as HTMLElement).dataset.i!])));
-
-  for (const card of seriesChartCards(res)) sec.appendChild(card);
-
+  for (const mode of ['dynamic', 'static'] as Loading[]) renderModeSection(root, items, res, cb, mode);
+  renderModeComparison(root, res);
+  const sec = renderWearScenarios(root, res);
   sec.insertAdjacentHTML('beforeend', `<div class="export-row" style="margin-top:12px"><button class="btn primary" id="s-xlsx">Series (Excel)</button><button class="btn" id="s-csv">Series (CSV)</button><button class="btn" id="s-back">Edit series</button></div>`);
   (sec.querySelector('#s-csv') as HTMLButtonElement).addEventListener('click', csv);
   const bx = sec.querySelector('#s-xlsx') as HTMLButtonElement;
@@ -126,49 +109,172 @@ export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res:
   (sec.querySelector('#s-back') as HTMLButtonElement).addEventListener('click', () => renderSeriesSetup(root, items, cb));
 }
 
-/** The series charts (title, explanation, legend and SVG), as on the page */
-export function seriesChartCards(res: SeriesResult[]): HTMLElement[] {
+const cellStat = (s: { p50: number; p5: number; p95: number } | null | undefined) => s ? `<b>${fmt(s.p50)}</b><div class="range">${fmt(s.p5)} – ${fmt(s.p95)}</div>` : '—';
+const cellD = (r: SeriesResult) => r.measured ? (r.measured.notDetected ? `n.d.<div class="range">&lt; ${fmt(r.measured.detectionLimitUm)}</div>` : `<b>${fmt(r.measured.penetrationUm)}</b><div class="range">± ${fmt(r.measured.sdUm)}</div>`) : '—';
+const cellCase = (r: SeriesResult) => `<b>${escapeHtml(r.caseId)}</b><div class="range"><span class="swatch" style="background:${cssVar(MAT_COLOR[r.material])}"></span>${escapeHtml(r.materialLabel.split(',')[0])}</div>`;
+const diffCell = (a: number | null | undefined, b: number | null | undefined) => (a != null && b != null && Number.isFinite(a) && Number.isFinite(b) ? fmt(a - b) : '—');
+
+/** One loading mode: its own Monte Carlo, table and charts */
+function renderModeSection(root: HTMLElement, items: SeriesItem[], res: SeriesResult[], cb: SeriesCallbacks, mode: Loading): void {
+  const sec = section(root, `Series results — ${mode} mode (independent Monte Carlo)`,
+    `${mode === 'dynamic' ? 'Gait cycles at 1 Hz during the walking time' : 'The peak walking force held during the whole implantation (upper bound)'}; this mode has its own Monte Carlo simulation, independent of the ${mode === 'dynamic' ? 'static' : 'dynamic'} one. Median and 90 % interval for each liner, in µm. <b>L&amp;P</b> and <b>long</b> are the two recovery scenarios (Lee &amp; Pienkowski / long loading). <b>Elevation bound</b>: minimum remaining creep from the material pushed above the original sphere (sphere → plane); ✓ the model is consistent with it in that scenario, ≈ the model median is below it, ✗ the model is below it (under-predicts).`);
+  const body = res.map((r, i) => {
+    const m = r.modes[mode], lp = m.byScenario.lp, lg = m.byScenario.long;
+    const ev = r.elevationMinCreepUm ? `<b>${fmt(r.elevationMinCreepUm.nominal)}</b><div class="range">${fmt(r.elevationMinCreepUm.lo)} – ${fmt(r.elevationMinCreepUm.hi)}</div><div class="range">L&amp;P ${lp?.elevation ? ELEV_TXT[lp.elevation] : '—'} · long ${lg?.elevation ? ELEV_TXT[lg.elevation] : '—'}</div>` : '—';
+    const vd = m.verdict ? `<span class="badge ${m.verdict.level}" title="${escapeHtml(m.verdict.detail)}">${m.verdict.level === 'separable' ? '✓' : m.verdict.level === 'inconsistent' ? '!' : '≈'}</span> ${escapeHtml(m.verdict.title)}` : '—';
+    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td>
+      <td>${fmt(r.years)}</td><td>${cellD(r)}</td><td>${cellStat(m.creep)}</td><td>${cellStat(lp?.remaining)}</td><td>${cellStat(lg?.remaining)}</td>
+      <td>${cellStat(lp?.wear)}</td><td>${cellStat(lg?.wear)}</td><td>${ev}</td><td class="vd">${vd}</td>
+      <td><button class="btn s-open" data-i="${i}" type="button">Open</button></td></tr>`;
+  }).join('');
+  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
+    <thead><tr><th rowspan="2">#</th><th rowspan="2">Case</th><th rowspan="2">Years</th><th rowspan="2">D</th><th rowspan="2">C<sub>max</sub></th><th colspan="2">Remaining creep</th><th colspan="2">Wear W</th><th rowspan="2">Elevation bound</th><th rowspan="2">Verdict</th><th rowspan="2"></th></tr>
+    <tr><th>L&amp;P</th><th>long</th><th>L&amp;P</th><th>long</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`);
+  sec.querySelectorAll('.s-open').forEach((b) => b.addEventListener('click', () => cb.onOpen(items[+(b as HTMLElement).dataset.i!])));
+  for (const card of seriesChartCards(res, mode)) sec.appendChild(card);
+}
+
+/** Dynamic vs static, liner by liner */
+function renderModeComparison(root: HTMLElement, res: SeriesResult[]): void {
+  const sec = section(root, 'Dynamic vs static — per liner',
+    'Results of the two independent simulations side by side (median and 90 % interval, µm; remaining creep and wear with both recovery scenarios pooled). <b>Static / dynamic</b>: ratio of the medians of the creep at explantation. <b>Δ</b>: dynamic − static median.');
+  const body = res.map((r, i) => {
+    const d = r.modes.dynamic, s = r.modes.static;
+    const ratio = d.creep.p50 > 0 ? (s.creep.p50 / d.creep.p50).toFixed(2) : '—';
+    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td><td>${fmt(r.years)}</td><td>${cellD(r)}</td>
+      <td>${cellStat(d.creep)}</td><td>${cellStat(s.creep)}</td><td>${ratio}</td>
+      <td>${cellStat(d.remaining)}</td><td>${cellStat(s.remaining)}</td><td>${diffCell(d.remaining.p50, s.remaining.p50)}</td>
+      <td>${cellStat(d.wear)}</td><td>${cellStat(s.wear)}</td><td>${diffCell(d.wear?.p50, s.wear?.p50)}</td></tr>`;
+  }).join('');
+  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
+    <thead><tr><th rowspan="2">#</th><th rowspan="2">Case</th><th rowspan="2">Years</th><th rowspan="2">D</th><th colspan="3">Creep at explantation C<sub>max</sub></th><th colspan="3">Remaining creep at the scan</th><th colspan="3">Wear W</th></tr>
+    <tr><th>dynamic</th><th>static</th><th>static / dynamic</th><th>dynamic</th><th>static</th><th>Δ</th><th>dynamic</th><th>static</th><th>Δ</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`);
+}
+
+/** Wear with each recovery scenario, both modes: table and charts */
+function renderWearScenarios(root: HTMLElement, res: SeriesResult[]): HTMLElement {
+  const sec = section(root, 'Wear — Lee &amp; Pienkowski vs long-loading recovery',
+    'Wear W = D − remaining creep for each recovery scenario (median and 90 % interval, µm). <b>L&amp;P</b>: recovery of the laboratory tests (about half of the creep within a week); <b>long</b>: almost no recovery after years of loading (Estok 2005). <b>Δ</b>: L&amp;P − long median, i.e. how much the recovery assumption changes the wear. Liners whose penetration was not detected have no wear estimate.');
+  const body = res.map((r, i) => {
+    const cells = (['dynamic', 'static'] as Loading[]).map((mode) => {
+      const b = r.modes[mode].byScenario;
+      return `<td>${cellStat(b.lp?.wear)}</td><td>${cellStat(b.long?.wear)}</td><td>${diffCell(b.lp?.wear?.p50, b.long?.wear?.p50)}</td>`;
+    }).join('');
+    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td><td>${fmt(r.years)}</td><td>${cellD(r)}</td>${cells}</tr>`;
+  }).join('');
+  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
+    <thead><tr><th rowspan="2">#</th><th rowspan="2">Case</th><th rowspan="2">Years</th><th rowspan="2">D</th><th colspan="3">Dynamic: wear W</th><th colspan="3">Static: wear W</th></tr>
+    <tr><th>L&amp;P</th><th>long</th><th>Δ</th><th>L&amp;P</th><th>long</th><th>Δ</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`);
+  if (res.some((r) => r.modes.dynamic.wear || r.modes.static.wear)) {
+    for (const mode of ['dynamic', 'static'] as Loading[]) {
+      const card = document.createElement('div');
+      card.className = 'chart-card';
+      card.style.marginTop = '14px';
+      card.innerHTML = `<div class="chart-title">Estimated wear per liner, L&amp;P vs long loading (${mode})</div>
+        <div class="chart-sub">Bars: 90 % interval of the wear (dot = median) with each recovery scenario. Diamond: measured D (the wear cannot exceed it by more than the uncertainty). n.d.: penetration not detected, no wear estimate.</div>
+        <div class="legend"><span class="item"><span class="swatch" style="background:${cssVar('--series-1')}"></span>Wear, L&amp;P recovery</span><span class="item"><span class="swatch" style="background:${cssVar('--series-2')}"></span>Wear, long-loading recovery</span><span class="item">◆ measured D</span></div>`;
+      wearPerLinerChart(card, res, mode);
+      sec.appendChild(card);
+    }
+  }
+  return sec;
+}
+
+/** The charts of one loading mode (title, explanation, legend and SVG) */
+export function seriesChartCards(res: SeriesResult[], mode: Loading): HTMLElement[] {
   const cards: HTMLElement[] = [];
   // ---- chart: each liner, measured D vs remaining creep in both scenarios + elevation bound ----
   const card = document.createElement('div');
   card.className = 'chart-card';
   card.style.marginTop = '14px';
-  card.innerHTML = `<div class="chart-title">Measured penetration vs remaining creep, per liner (dynamic)</div>
+  card.innerHTML = `<div class="chart-title">Measured penetration vs remaining creep, per liner (${mode})</div>
     <div class="chart-sub">Bars: 90 % interval of the remaining creep (dot = median). Diamond: measured D ± 2 SD (open box: not detected, below the detection limit). Triangle: minimum creep from the elevations. Wear is the gap between D and the remaining creep.</div>
     <div class="legend"><span class="item"><span class="swatch" style="background:${cssVar('--series-1')}"></span>Remaining creep, L&amp;P</span><span class="item"><span class="swatch" style="background:${cssVar('--series-2')}"></span>Remaining creep, long loading</span><span class="item">◆ measured D</span><span class="item">▲ elevation bound</span></div>`;
-  perLinerChart(card, res);
+  perLinerChart(card, res, mode);
   cards.push(card);
 
   // ---- chart: wear vs years by material ----
-  if (res.some((r) => r.modes.dynamic.wear)) {
+  if (res.some((r) => r.modes[mode].wear)) {
     const c2 = document.createElement('div');
     c2.className = 'chart-card';
     c2.style.marginTop = '14px';
     const mats = Array.from(new Map(res.map((r) => [r.materialLabel, r.material])).entries());
-    c2.innerHTML = `<div class="chart-title">Estimated wear vs time in vivo (dynamic)</div>
+    c2.innerHTML = `<div class="chart-title">Estimated wear vs time in vivo (${mode})</div>
       <div class="chart-sub">Vertical segment: from the long-loading to the L&amp;P median (the recovery uncertainty); dot: envelope median. Colour = polyethylene.</div>
       <div class="legend">${mats.map(([lab, m]) => `<span class="item"><span class="swatch" style="background:${cssVar(MAT_COLOR[m])}"></span>${escapeHtml(lab.split(',')[0])}</span>`).join('')}</div>`;
-    wearVsYears(c2, res);
+    wearVsYears(c2, res, mode);
     cards.push(c2);
   }
   return cards;
 }
 
-function perLinerChart(container: HTMLElement, res: SeriesResult[]): void {
+/** Wear per liner with each recovery scenario (horizontal 90 % bars) and the measured D */
+function wearPerLinerChart(container: HTMLElement, res: SeriesResult[], mode: Loading): void {
+  const W = 760, rowH = 34, m = { l: 150, r: 24, t: 10, b: 38 };
+  const H = m.t + m.b + res.length * rowH;
+  let lo = 0, hi = 1;
+  for (const r of res) {
+    for (const k of ['lp', 'long'] as const) {
+      const w = r.modes[mode].byScenario[k]?.wear;
+      if (w) { lo = Math.min(lo, w.p5); hi = Math.max(hi, w.p95); }
+    }
+    if (r.measured && !r.measured.notDetected) hi = Math.max(hi, r.measured.penetrationUm);
+  }
+  const span = hi - lo; lo -= 0.03 * span; hi += 0.03 * span;
+  const X = (x: number) => m.l + ((x - lo) / (hi - lo)) * (W - m.l - m.r);
+  const s = svg(W, H);
+  for (const t of niceTicks(lo, hi, 6)) {
+    add(s, 'line', { x1: X(t), x2: X(t), y1: m.t, y2: H - m.b, class: t === 0 ? 'axisline' : 'gridline' });
+    add(s, 'text', { x: X(t), y: H - m.b + 16, 'text-anchor': 'middle' }).textContent = fmt(t);
+  }
+  add(s, 'text', { x: (m.l + W - m.r) / 2, y: H - 6, 'text-anchor': 'middle' }).textContent = 'estimated wear W (µm)';
+  const C1 = cssVar('--series-1'), C2 = cssVar('--series-2'), CI = cssVar('--text-primary'), CM = cssVar('--text-muted');
+  res.forEach((r, i) => {
+    const cy = m.t + i * rowH + rowH / 2;
+    add(s, 'text', { x: m.l - 10, y: cy + 4, 'text-anchor': 'end' }).textContent = r.caseId.length > 18 ? r.caseId.slice(0, 17) + '…' : r.caseId;
+    const b = r.modes[mode].byScenario;
+    if (!b.lp?.wear && !b.long?.wear) {
+      add(s, 'text', { x: X(Math.max(lo, 0)) + 6, y: cy + 4, fill: CM }).textContent = r.measured?.notDetected ? `n.d. (< ${fmt(r.measured.detectionLimitUm)} µm)` : 'no measurement';
+      return;
+    }
+    ([['lp', C1, -6], ['long', C2, 6]] as const).forEach(([k, col, dy]) => {
+      const w = b[k]?.wear;
+      if (!w) return;
+      add(s, 'line', { x1: X(w.p5), x2: X(w.p95), y1: cy + dy, y2: cy + dy, stroke: col, 'stroke-width': 4, 'stroke-linecap': 'round', 'stroke-opacity': 0.55 });
+      add(s, 'circle', { cx: X(w.p50), cy: cy + dy, r: 4, fill: col, stroke: 'var(--chart-surface)', 'stroke-width': 1.5 });
+    });
+    const M = r.measured;
+    if (M && !M.notDetected) {
+      const x = X(M.penetrationUm);
+      add(s, 'path', { d: `M${x},${cy - 5}L${x + 5},${cy}L${x},${cy + 5}L${x - 5},${cy}Z`, fill: CI });
+    }
+    const hit = add(s, 'rect', { x: m.l, y: cy - rowH / 2, width: W - m.l - m.r, height: rowH, fill: 'transparent' });
+    hit.addEventListener('mousemove', (ev) => showTip(`<b>${escapeHtml(r.caseId)}</b> · ${mode}<div>D: ${M && !M.notDetected ? `${fmt(M.penetrationUm)} ± ${fmt(M.sdUm)}` : '—'} µm</div>
+      <div>W L&amp;P: ${fmt(b.lp?.wear?.p50)} (${fmt(b.lp?.wear?.p5)}–${fmt(b.lp?.wear?.p95)})</div>
+      <div>W long: ${fmt(b.long?.wear?.p50)} (${fmt(b.long?.wear?.p5)}–${fmt(b.long?.wear?.p95)})</div>`, ev));
+    hit.addEventListener('mouseleave', hideTip);
+  });
+  container.appendChild(s);
+}
+
+function perLinerChart(container: HTMLElement, res: SeriesResult[], mode: Loading): void {
   const W = 760, rowH = 34, m = { l: 150, r: 24, t: 10, b: 38 };
   const H = m.t + m.b + res.length * rowH;
   let xMax = 1;
   for (const r of res) {
-    const d = r.modes.dynamic;
+    const d = r.modes[mode];
     for (const k of ['lp', 'long'] as const) xMax = Math.max(xMax, d.byScenario[k]?.remaining.p95 ?? 0);
     if (r.measured) xMax = Math.max(xMax, r.measured.notDetected ? (r.measured.detectionLimitUm ?? 0) : r.measured.penetrationUm + 2 * r.measured.sdUm);
     if (r.elevationMinCreepUm) xMax = Math.max(xMax, r.elevationMinCreepUm.nominal);
   }
   xMax *= 1.05;
   // liners with millimetre penetrations next to creep of tens of µm: switch to a log axis
-  const meds = res.map((r) => r.modes.dynamic.remaining.p50).filter((v) => v > 0).sort((a, b) => a - b);
+  const meds = res.map((r) => r.modes[mode].remaining.p50).filter((v) => v > 0).sort((a, b) => a - b);
   const logX = meds.length > 0 && xMax > 20 * meds[Math.floor(meds.length / 2)];
-  const lows = [meds[0] ?? 10, ...res.map((r) => r.elevationMinCreepUm?.nominal ?? Infinity), ...res.map((r) => r.modes.dynamic.byScenario.lp?.remaining.p5 ?? Infinity)].filter((v) => v > 0 && Number.isFinite(v));
+  const lows = [meds[0] ?? 10, ...res.map((r) => r.elevationMinCreepUm?.nominal ?? Infinity), ...res.map((r) => r.modes[mode].byScenario.lp?.remaining.p5 ?? Infinity)].filter((v) => v > 0 && Number.isFinite(v));
   const xMin = logX ? Math.max(1, Math.pow(10, Math.floor(Math.log10(Math.max(1, Math.min(...lows) / 1.5))))) : 0;
   const X = (x: number) => logX
     ? m.l + ((Math.log10(Math.max(xMin, x)) - Math.log10(xMin)) / (Math.log10(xMax) - Math.log10(xMin))) * (W - m.l - m.r)
@@ -184,7 +290,7 @@ function perLinerChart(container: HTMLElement, res: SeriesResult[]): void {
   res.forEach((r, i) => {
     const cy = m.t + i * rowH + rowH / 2;
     add(s, 'text', { x: m.l - 10, y: cy + 4, 'text-anchor': 'end' }).textContent = r.caseId.length > 18 ? r.caseId.slice(0, 17) + '…' : r.caseId;
-    const d = r.modes.dynamic;
+    const d = r.modes[mode];
     ([['lp', C1, -6], ['long', C2, 6]] as const).forEach(([k, col, dy]) => {
       const b = d.byScenario[k];
       if (!b) return;
@@ -213,10 +319,10 @@ function perLinerChart(container: HTMLElement, res: SeriesResult[]): void {
   container.appendChild(s);
 }
 
-function wearVsYears(container: HTMLElement, res: SeriesResult[]): void {
+function wearVsYears(container: HTMLElement, res: SeriesResult[], mode: Loading): void {
   const W = 760, H = 300, m = { l: 56, r: 20, t: 12, b: 40 };
-  const pts = res.filter((r) => r.modes.dynamic.wear);
-  const ys = pts.flatMap((r) => [r.modes.dynamic.byScenario.lp?.wear?.p50 ?? 0, r.modes.dynamic.byScenario.long?.wear?.p50 ?? 0, r.modes.dynamic.wear!.p50]);
+  const pts = res.filter((r) => r.modes[mode].wear);
+  const ys = pts.flatMap((r) => [r.modes[mode].byScenario.lp?.wear?.p50 ?? 0, r.modes[mode].byScenario.long?.wear?.p50 ?? 0, r.modes[mode].wear!.p50]);
   const yMin = Math.min(0, ...ys) * 1.1, yMax = Math.max(1, ...ys) * 1.1;
   const xMax = Math.max(1, ...pts.map((r) => r.years)) * 1.08;
   const X = (x: number) => m.l + (x / xMax) * (W - m.l - m.r);
@@ -232,7 +338,7 @@ function wearVsYears(container: HTMLElement, res: SeriesResult[]): void {
   yl.textContent = 'estimated wear W (µm)';
   for (const r of pts) {
     const col = cssVar(MAT_COLOR[r.material]);
-    const d = r.modes.dynamic, a = d.byScenario.long?.wear?.p50, b = d.byScenario.lp?.wear?.p50;
+    const d = r.modes[mode], a = d.byScenario.long?.wear?.p50, b = d.byScenario.lp?.wear?.p50;
     if (a != null && b != null) add(s, 'line', { x1: X(r.years), x2: X(r.years), y1: Y(a), y2: Y(b), stroke: col, 'stroke-width': 3, 'stroke-opacity': 0.5, 'stroke-linecap': 'round' });
     const dot = add(s, 'circle', { cx: X(r.years), cy: Y(d.wear!.p50), r: 5, fill: col, stroke: 'var(--chart-surface)', 'stroke-width': 1.5 });
     dot.addEventListener('mousemove', (ev) => showTip(`<b>${escapeHtml(r.caseId)}</b><div>${fmt(r.years)} years · ${escapeHtml(r.materialLabel.split(',')[0])}</div><div>W median ${fmt(d.wear!.p50)} µm (long ${fmt(a)} · L&amp;P ${fmt(b)})</div><div>≈ ${fmt(d.wear!.p50 / Math.max(r.years, 0.01))} µm/year</div>`, ev));

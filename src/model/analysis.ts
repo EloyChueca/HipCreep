@@ -213,10 +213,9 @@ export interface ModeSamples {
 export const PARAM_KEYS = ['forceBW', 'cyclesPerYear', 'dynStaticRatio', 'E', 'nu', 'thicknessMm', 'clearanceMm', 'eaKcal', 'materialFactor', 'r10k'] as const;
 export type ParamKey = typeof PARAM_KEYS[number];
 
-export interface McResult {
-  n: number;
+/** Sampled inputs of one loading mode's Monte Carlo (sensitivity analysis, recovery curves) */
+export interface McInputs {
   lawIndex: Uint8Array;
-  laws: LawId[];
   recoveredFraction: Float64Array;
   /** Recovery scenario of each sample: 0 = Lee & Pienkowski, 1 = long loading */
   scenario: Uint8Array;
@@ -227,6 +226,17 @@ export interface McResult {
   /** 1 = Lee laws continue log-linearly beyond 10⁴ min, 0 = capped */
   leeLog: Uint8Array;
   measuredUm: Float64Array | null;
+}
+
+/**
+ * Two independent Monte Carlo simulations, one per loading mode (v0.11): each mode draws its own
+ * samples (law, parameters, recovery, measured D) from its own random stream, with n samples each.
+ */
+export interface McResult {
+  n: number;
+  laws: LawId[];
+  /** Sampled inputs of each mode's simulation */
+  inputs: Record<Loading, McInputs>;
   modes: Record<Loading, ModeSamples>;
   summary: Record<Loading, {
     creep: Stats; recovered: Stats; remaining: Stats;
@@ -248,20 +258,13 @@ export async function runMonteCarlo(
 ): Promise<McResult> {
   const t0 = performance.now();
   const n = Math.max(10, Math.round(c.samples));
-  const rng = mulberry32(c.seed);
   const mcSet = (c.mcLaws ?? []).filter((id) => LAWS[id]);
   const laws = mcSet.length ? mcSet : c.laws.length ? c.laws : (['lee2003'] as LawId[]);
-  const lawIndex = new Uint8Array(n);
-  const Rarr = new Float64Array(n);
-  const scen = new Uint8Array(n);
-  const params = Object.fromEntries(PARAM_KEYS.map((k) => [k, new Float64Array(n)])) as Record<ParamKey, Float64Array>;
-  const kinLog = new Uint8Array(n), leeLog = new Uint8Array(n);
   const meas = c.measured;
   // not detected: D is only known to lie in [0, LoD] — no wear / creep split is computed
   const notDetected = !!meas?.notDetected;
   const lod = meas?.detectionLimitUm ?? 0;
   const split = !!meas && !notDetected;
-  const Darr = meas ? new Float64Array(n) : null;
   const mk = (): ModeSamples => ({
     creepUm: new Float64Array(n),
     recoveredUm: new Float64Array(n),
@@ -269,25 +272,36 @@ export async function runMonteCarlo(
     wearUm: split ? new Float64Array(n) : null,
     creepShare: split ? new Float64Array(n) : null,
   });
+  const mkInputs = (): McInputs => ({
+    lawIndex: new Uint8Array(n), recoveredFraction: new Float64Array(n), scenario: new Uint8Array(n),
+    params: Object.fromEntries(PARAM_KEYS.map((k) => [k, new Float64Array(n)])) as Record<ParamKey, Float64Array>,
+    kineticsLog: new Uint8Array(n), leeLog: new Uint8Array(n), measuredUm: meas ? new Float64Array(n) : null,
+  });
   const modes: Record<Loading, ModeSamples> = { static: mk(), dynamic: mk() };
+  const inputs: Record<Loading, McInputs> = { static: mkInputs(), dynamic: mkInputs() };
+  // independent random streams: the dynamic simulation keeps the case seed, the static one a derived seed
+  const SEED: Record<Loading, number> = { dynamic: c.seed >>> 0, static: (Math.imul(c.seed ^ 0x5bd1e995, 0x9e3779b1) ^ 0x7f4a7c15) >>> 0 };
 
   const CHUNK = 8;
-  for (let s = 0; s < n; s++) {
-    const li = Math.min(laws.length - 1, Math.floor(rng() * laws.length));
-    lawIndex[s] = li;
-    const p = sampleParams(c, rng);
-    const R = recoveryFor(c, p);
-    Rarr[s] = R;
-    scen[s] = p.recoveryScenario === 'long' ? 1 : 0;
-    for (const k of PARAM_KEYS) params[k][s] = p[k];
-    kinLog[s] = p.recoveryKinetics === 'log' ? 1 : 0;
-    leeLog[s] = p.leeExtrapolation === 'log' ? 1 : 0;
-    const D = !meas ? 0 : notDetected ? uniform(rng, { nominal: lod / 2, lo: 0, hi: lod }) : normal(rng, meas.penetrationUm, meas.sdUm);
-    if (Darr) Darr[s] = D;
-    for (const mode of MODES) {
+  const ORDER: Loading[] = ['dynamic', 'static'];
+  for (let mi = 0; mi < ORDER.length; mi++) {
+    const mode = ORDER[mi];
+    const rng = mulberry32(SEED[mode]);
+    const inp = inputs[mode], ms = modes[mode];
+    for (let s = 0; s < n; s++) {
+      const li = Math.min(laws.length - 1, Math.floor(rng() * laws.length));
+      inp.lawIndex[s] = li;
+      const p = sampleParams(c, rng);
+      const R = recoveryFor(c, p);
+      inp.recoveredFraction[s] = R;
+      inp.scenario[s] = p.recoveryScenario === 'long' ? 1 : 0;
+      for (const k of PARAM_KEYS) inp.params[k][s] = p[k];
+      inp.kineticsLog[s] = p.recoveryKinetics === 'log' ? 1 : 0;
+      inp.leeLog[s] = p.leeExtrapolation === 'log' ? 1 : 0;
+      const D = !meas ? 0 : notDetected ? uniform(rng, { nominal: lod / 2, lo: 0, hi: lod }) : normal(rng, meas.penetrationUm, meas.sdUm);
+      if (inp.measuredUm) inp.measuredUm[s] = D;
       const sim = runSim(c, p, laws[li], mode, c.inVivoTempC, RES_MC);
       const C = sim.maxCreepMm * 1000;
-      const ms = modes[mode];
       ms.creepUm[s] = C;
       ms.recoveredUm[s] = C * R;
       ms.remainingUm[s] = C * (1 - R);
@@ -295,11 +309,11 @@ export async function runMonteCarlo(
         ms.wearUm[s] = D - C * (1 - R);
         ms.creepShare[s] = D > 0 ? (C * (1 - R)) / D : NaN;
       }
-    }
-    if ((s + 1) % CHUNK === 0) {
-      onProgress?.((s + 1) / n);
-      await yieldTask();
-      if (signal?.cancelled) throw new Error('cancelled');
+      if ((s + 1) % CHUNK === 0) {
+        onProgress?.((mi * n + s + 1) / (ORDER.length * n));
+        await yieldTask();
+        if (signal?.cancelled) throw new Error('cancelled');
+      }
     }
   }
   onProgress?.(1);
@@ -307,6 +321,7 @@ export async function runMonteCarlo(
   const summary = {} as McResult['summary'];
   for (const mode of MODES) {
     const ms = modes[mode];
+    const { lawIndex, scenario: scen, recoveredFraction: Rarr } = inputs[mode];
     const byLaw: Partial<Record<LawId, Stats>> = {};
     laws.forEach((id, li) => {
       byLaw[id] = summarize(ms.creepUm.filter((_, i) => lawIndex[i] === li));
@@ -352,8 +367,8 @@ export async function runMonteCarlo(
     wear: modes.static.wearUm && modes.dynamic.wearUm ? summarize(cat(modes.static.wearUm, modes.dynamic.wearUm)) : null,
   };
   return {
-    n, lawIndex, laws, recoveredFraction: Rarr, scenario: scen, params, kineticsLog: kinLog, leeLog, measuredUm: Darr, modes, summary, pooled,
-    recovery: summarize(Rarr),
+    n, laws, inputs, modes, summary, pooled,
+    recovery: summarize(cat(inputs.static.recoveredFraction, inputs.dynamic.recoveredFraction)),
     elapsedMs: performance.now() - t0,
   };
 }

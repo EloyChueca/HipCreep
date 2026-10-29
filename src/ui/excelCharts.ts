@@ -80,8 +80,18 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
       addI(`${p}_${k}_minus`, `${M} · ${lab} · error bar below = median − P5`, minusF(`${p}_${k}_p5`, `${p}_${k}_p50`));
       addI(`${p}_${k}_plus`, `${M} · ${lab} · error bar above = P95 − median`, plusF(`${p}_${k}_p50`, `${p}_${k}_p95`));
     }
+    add(`${p}_c_p5`, `${M} · creep at explantation Cmax · P5 (µm)`, (r) => round(r.modes[mode].creep.p5));
+    add(`${p}_c_p50`, `${M} · creep at explantation Cmax · median (µm)`, (r) => round(r.modes[mode].creep.p50));
+    add(`${p}_c_p95`, `${M} · creep at explantation Cmax · P95 (µm)`, (r) => round(r.modes[mode].creep.p95));
     add(`${p}_wlp`, `${M} · wear W, L&P · median (µm)`, (r) => round(sc(r, 'lp')?.wear?.p50));
     add(`${p}_wlong`, `${M} · wear W, long loading · median (µm)`, (r) => round(sc(r, 'long')?.wear?.p50));
+    for (const [k, lab] of [['lp', 'L&P'], ['long', 'long loading']] as const) {
+      const key = k === 'lp' ? `${p}_wlp` : `${p}_wlong`;
+      add(`${key}_p5`, `${M} · wear W, ${lab} · P5 (µm)`, (r) => round(sc(r, k)?.wear?.p5));
+      add(`${key}_p95`, `${M} · wear W, ${lab} · P95 (µm)`, (r) => round(sc(r, k)?.wear?.p95));
+      addI(`${key}_minus`, `${M} · wear ${lab} · error bar below = median − P5`, minusF(`${key}_p5`, key));
+      addI(`${key}_plus`, `${M} · wear ${lab} · error bar above = P95 − median`, plusF(key, `${key}_p95`));
+    }
     add(`${p}_w`, `${M} · wear W, both scenarios · median (µm)`, (r) => round(r.modes[mode].wear?.p50));
     add(`${p}_w_p5`, `${M} · wear W, both scenarios · P5 (µm)`, (r) => round(r.modes[mode].wear?.p5));
     add(`${p}_w_p95`, `${M} · wear W, both scenarios · P95 (µm)`, (r) => round(r.modes[mode].wear?.p95));
@@ -171,31 +181,61 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
       ],
     });
   };
-  /** Comparison of the wear as a table: values and their uncertainty, each cell linked to the Chart data sheet */
-  const wearTable = (): { rows: Cell[][]; bold: number[] } => {
-    const link = (key: string, i: number): Cell => (ok(val(key, i)) ? { f: `'${CHART_DATA_SHEET}'!$${L(key)}$${first + i}`, v: val(key, i) } : null);
-    const head = ['Liner', 'Polyethylene', 'Years in vivo', 'D (µm)', 'SD of D (µm)', 'Detection limit (µm)',
-      'Dynamic W median (µm)', 'Dynamic W P5', 'Dynamic W P95', 'Dynamic W, L&P median', 'Dynamic W, long-loading median',
-      'Static W median (µm)', 'Static W P5', 'Static W P95', 'Static W, L&P median', 'Static W, long-loading median',
-      'Dynamic − static (median, µm)', 'Note'];
-    const rows: Cell[][] = [head];
-    res.forEach((r, i) => {
-      const dW = val('d_w', i), sW = val('s_w', i);
-      const diff: Cell = ok(dW) && ok(sW) ? { f: `${(link('d_w', i) as { f: string }).f}-${(link('s_w', i) as { f: string }).f}`, v: round(dW - sW, 1) } : null;
-      const note = r.measured?.notDetected ? `Penetration not detected (< ${val('lod', i) ?? '?'} µm): wear not estimated`
-        : !r.measured ? 'No measured penetration: wear not estimated' : '';
-      rows.push([r.caseId, shortMat(r), link('years', i), link('D', i), link('Dsd', i), link('lod', i),
-        link('d_w', i), link('d_w_p5', i), link('d_w_p95', i), link('d_wlp', i), link('d_wlong', i),
-        link('s_w', i), link('s_w_p5', i), link('s_w_p95', i), link('s_wlp', i), link('s_wlong', i), diff, note]);
+  // ---- tables linked to the Chart data sheet ----
+  const link = (key: string, i: number): Cell => (ok(val(key, i)) ? { f: `'${CHART_DATA_SHEET}'!$${L(key)}$${first + i}`, v: val(key, i) } : null);
+  const fOf = (c: Cell) => (c as { f: string }).f;
+  const diff = (a: string, b: string, i: number): Cell => {
+    const x = link(a, i), y = link(b, i);
+    return x && y ? { f: `${fOf(x)}-${fOf(y)}`, v: round(val(a, i)! - val(b, i)!, 1) } : null;
+  };
+  const ratio = (a: string, b: string, i: number): Cell => {
+    const x = link(a, i), y = link(b, i);
+    return x && y && val(b, i)! > 0 ? { f: `${fOf(x)}/${fOf(y)}`, v: round(val(a, i)! / val(b, i)!, 3) } : null;
+  };
+  const note = (r: SeriesResult, i: number) => r.measured?.notDetected ? `Penetration not detected (< ${val('lod', i) ?? '?'} µm): wear not estimated`
+    : !r.measured ? 'No measured penetration: wear not estimated' : '';
+  const base = (r: SeriesResult, i: number): Cell[] => [r.caseId, shortMat(r), link('years', i), link('D', i), link('Dsd', i), link('lod', i)];
+  const BASE_HEAD = ['Liner', 'Polyethylene', 'Years in vivo', 'D (µm)', 'SD of D (µm)', 'Detection limit (µm)'];
+
+  /** Dynamic vs static, liner by liner: creep at explantation, remaining creep and wear (both scenarios pooled) */
+  const modeTable = (): Cell[][] => {
+    const head = [...BASE_HEAD,
+      'Dynamic Cmax median', 'Dynamic Cmax P5', 'Dynamic Cmax P95', 'Static Cmax median', 'Static Cmax P5', 'Static Cmax P95', 'Cmax static / dynamic',
+      'Dynamic remaining creep median', 'P5', 'P95', 'Static remaining creep median', 'P5', 'P95', 'Remaining creep: dynamic − static',
+      'Dynamic W median', 'P5', 'P95', 'Static W median', 'P5', 'P95', 'W: dynamic − static', 'Note'];
+    return [head, ...res.map((r, i) => [...base(r, i),
+      link('d_c_p50', i), link('d_c_p5', i), link('d_c_p95', i), link('s_c_p50', i), link('s_c_p5', i), link('s_c_p95', i), ratio('s_c_p50', 'd_c_p50', i),
+      link('d_env_p50', i), link('d_env_p5', i), link('d_env_p95', i), link('s_env_p50', i), link('s_env_p5', i), link('s_env_p95', i), diff('d_env_p50', 's_env_p50', i),
+      link('d_w', i), link('d_w_p5', i), link('d_w_p95', i), link('s_w', i), link('s_w_p5', i), link('s_w_p95', i), diff('d_w', 's_w', i), note(r, i)])];
+  };
+  /** Wear with each recovery scenario, both modes */
+  const scenarioTable = (): Cell[][] => {
+    const head = [...BASE_HEAD,
+      'Dynamic W, L&P median', 'P5', 'P95', 'Dynamic W, long median', 'P5', 'P95', 'Dynamic: L&P − long',
+      'Static W, L&P median', 'P5', 'P95', 'Static W, long median', 'P5', 'P95', 'Static: L&P − long', 'Note'];
+    return [head, ...res.map((r, i) => [...base(r, i),
+      link('d_wlp', i), link('d_wlp_p5', i), link('d_wlp_p95', i), link('d_wlong', i), link('d_wlong_p5', i), link('d_wlong_p95', i), diff('d_wlp', 'd_wlong', i),
+      link('s_wlp', i), link('s_wlp_p5', i), link('s_wlp_p95', i), link('s_wlong', i), link('s_wlong_p5', i), link('s_wlong_p95', i), diff('s_wlp', 's_wlong', i), note(r, i)])];
+  };
+  /** Wear per liner with each recovery scenario (bars + 90 % interval) and the measured D */
+  const wearScenarioChart = (mode: Loading): string => {
+    const p = mode === 'dynamic' ? 'd' : 's', M = MODE_NAME[mode];
+    return chartXml({
+      title: `${M}: estimated wear per liner, L&P vs long-loading recovery`, layout: 'category', categories: liners,
+      yTitle: 'estimated wear W (µm)', xTitle: 'liner',
+      series: [
+        { kind: 'bar', name: 'Wear, L&P recovery (median, 90 % interval)', color: C.lp, alpha: 0.75, val: num(`${p}_wlp`), err: { plus: num(`${p}_wlp_plus`), minus: num(`${p}_wlp_minus`), color: '1F4E8C' } },
+        { kind: 'bar', name: 'Wear, long-loading recovery (median, 90 % interval)', color: C.long, alpha: 0.75, val: num(`${p}_wlong`), err: { plus: num(`${p}_wlong_plus`), minus: num(`${p}_wlong_minus`), color: '9C3D16' } },
+        { kind: 'line', name: 'Measured D', color: C.D, marker: 'diamond', markerSize: 9, val: num('D') },
+      ],
     });
-    return { rows, bold: [0] };
   };
 
   const hasWear = (p: string) => (values.get(`${p}_w`) ?? []).some(ok);
   const CREEP_NOTE = 'Bars: median remaining creep at the scan; whiskers: 90 % interval (P5–P95). Diamond: measured D ± 2 SD (no diamond when HipWear did not detect a penetration: D is then only known to be below the detection limit). Dash: detection limit. Triangle: minimum remaining creep from the elevations. Wear is the gap between D and the remaining creep.';
   const WEAR_NOTE = 'Dot: median wear (both recovery scenarios); vertical segment: from the long-loading to the L&P median (the recovery uncertainty). Labels: liner. Liners without a detected penetration have no wear estimate and are not plotted. 90 % intervals in the Chart data sheet.';
-  const chartSheet = (name: string, heading: string, parts: { note: string; xml: string; title: string }[],
-    table?: { title: string; note: string; rows: Cell[][]; bold: number[] }): Sheet => {
+  type Table = { title: string; note: string; rows: Cell[][] };
+  const chartSheet = (name: string, heading: string, parts: { note: string; xml: string; title: string }[], tables: Table[] = []): Sheet => {
     // explanations first, charts below them (a chart never covers a text row)
     const rows: Cell[][] = [[heading], [`Editable charts: the series point at the '${CHART_DATA_SHEET}' sheet (values in µm).`]];
     parts.forEach((p, i) => rows.push([`Chart ${i + 1} — ${p.title}: ${p.note}`]));
@@ -206,15 +246,16 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
       charts.push({ xml: p.xml, col: 0, row: r, widthPx: CHART_W, heightPx: CHART_H, name: p.title });
       r += Math.ceil(CHART_H / 15) + 4;
     }
-    if (table) {
+    for (const t of tables) {
       while (rows.length < r) rows.push([]);
-      rows.push([table.title]); boldRows.push(rows.length - 1);
-      rows.push([table.note]);
-      const t0 = rows.length;
-      rows.push(...table.rows);
-      for (const b of table.bold) boldRows.push(t0 + b);
+      rows.push([t.title]); boldRows.push(rows.length - 1);
+      rows.push([t.note]);
+      boldRows.push(rows.length);                       // header row of the table
+      rows.push(...t.rows);
+      r = rows.length + 2;
     }
-    return { name, rows, boldRows, charts, fitWidth: true, widths: table ? [18, 22, ...Array(16).fill(15), 50] : undefined };
+    const nCols = Math.max(0, ...tables.map((t) => t.rows[0]?.length ?? 0));
+    return { name, rows, boldRows, charts, fitWidth: true, widths: tables.length ? [18, 22, ...Array(Math.max(0, nCols - 3)).fill(13), 50] : undefined };
   };
   const modeSheet = (mode: Loading) => {
     const p = mode === 'dynamic' ? 'd' : 's', M = MODE_NAME[mode];
@@ -223,11 +264,22 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
     return chartSheet(M, `${M} loading mode`, parts);
   };
   const cmpParts = [{ note: 'Remaining creep with both recovery scenarios pooled. ' + CREEP_NOTE.replace('Bars: median remaining creep at the scan; ', 'Bars: median; '), xml: compareCreep(), title: 'Dynamic vs static creep' }];
-  const cmpTable = hasWear('d') || hasWear('s') ? {
-    title: 'Dynamic vs static: estimated wear W = D − remaining creep (µm)',
-    note: 'Median and 90 % interval (P5–P95) of the Monte Carlo with both recovery scenarios, and the median of each scenario. Cells linked to the Chart data sheet.',
-    ...wearTable(),
-  } : undefined;
+  const cmpTables: Table[] = [{
+    title: 'Dynamic vs static, per liner (two independent Monte Carlo simulations; µm)',
+    note: 'Median and 90 % interval (P5–P95). Remaining creep and wear with both recovery scenarios pooled; wear W = D − remaining creep. Cells linked to the Chart data sheet.',
+    rows: modeTable(),
+  }];
+  const anyWear = hasWear('d') || hasWear('s');
+  const scenParts = anyWear ? (['dynamic', 'static'] as Loading[]).map((mode) => ({
+    note: 'Bars: median wear with each recovery scenario; whiskers: 90 % interval (P5–P95). Diamond: measured D. Liners whose penetration was not detected have no wear estimate (empty).',
+    xml: wearScenarioChart(mode), title: `${MODE_NAME[mode]} wear, L&P vs long loading`,
+  })) : [];
+  const scenTables: Table[] = anyWear ? [{
+    title: 'Wear with each recovery scenario: Lee & Pienkowski vs long loading (µm)',
+    note: 'L&P: recovery of the laboratory tests (about half of the creep within a week); long: almost no recovery after years of loading (Estok 2005). Median and 90 % interval; last column of each mode: L&P − long median. Cells linked to the Chart data sheet.',
+    rows: scenarioTable(),
+  }] : [];
 
-  return [modeSheet('dynamic'), modeSheet('static'), chartSheet('Comparison', 'Dynamic vs static', cmpParts, cmpTable), dataSheet];
+  return [modeSheet('dynamic'), modeSheet('static'), chartSheet('Comparison', 'Dynamic vs static', cmpParts, cmpTables),
+    ...(anyWear ? [chartSheet('Wear L&P vs long', 'Wear: Lee & Pienkowski vs long-loading recovery', scenParts, scenTables)] : []), dataSheet];
 }

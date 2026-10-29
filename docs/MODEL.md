@@ -153,7 +153,9 @@ h(t) = 0.73 + 0.27·log₁₀(t_min / 1000)      R(t) = R₁₀ₖ · h(t)
 Each sample draws one law (uniformly among the Monte Carlo laws, by default Lee 2003 and Lee 1998) and: peak force (U 2.3–2.8 BW), cycles/year (log-uniform
 0.5–2 M), `k` (U 0.61–0.70), E (U 500–900 MPa), ν (U 0.40–0.46), wall thickness (N), clearance (U), Ea (U 15–20),
 material factor (U), Lee extrapolation and recovery kinetics (50/50), `R₁₀ₖ` (U), and the measured `D` (N with the
-HipWear SD). Static and dynamic modes are computed for every sample.
+HipWear SD). Since v0.11 the static and the dynamic modes are **two independent Monte Carlo simulations**: each draws
+its own n samples of every input from its own random stream (the dynamic one keeps the case seed), so the two
+results do not share sampling noise and can be compared as separate estimates.
 
 Verdict per mode:
 
