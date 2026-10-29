@@ -32,6 +32,17 @@ const shortMat = (r: SeriesResult) => r.materialLabel.split(',')[0].split(' (')[
 interface Col { key: string; head: string; cell: (r: SeriesResult, row: number) => Cell }
 
 /** Build the data sheet and the three chart sheets */
+/** Split a text into lines of at most `n` characters at word boundaries */
+function wrapText(t: string, n = 120): string[] {
+  const out: string[] = [];
+  let line = '';
+  for (const w of t.split(' ')) {
+    if (line && (line + ' ' + w).length > n) { out.push(line); line = w; } else line = line ? `${line} ${w}` : w;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
 export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
   const n = res.length;
   const first = 2, last = first + n - 1;              // 1-based data rows (row 1 = headers)
@@ -140,6 +151,7 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
   const measured = (): ChartSeries[] => [
     { kind: 'line', name: 'Measured D ± 2 SD', color: C.D, marker: 'diamond', markerSize: 9, val: num('D'), err: { plus: num('D2sd'), minus: num('D2sd'), color: C.D, widthPt: 1.25 } },
     { kind: 'line', name: 'Detection limit', color: C.lod, marker: 'dash', markerSize: 14, val: num('lod') },
+    { kind: 'line', name: 'Measurement uncertainty (2·SD of D)', color: '8A5CD6', marker: 'dash', markerSize: 16, val: num('D2sd') },
     { kind: 'line', name: 'Elevation bound (min. remaining creep)', color: C.elev, marker: 'triangle', markerSize: 8, val: num('elev') },
   ];
   const creepChart = (mode: Loading): string => {
@@ -227,18 +239,20 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
         { kind: 'bar', name: 'Wear, L&P recovery (median, 90 % interval)', color: C.lp, alpha: 0.75, val: num(`${p}_wlp`), err: { plus: num(`${p}_wlp_plus`), minus: num(`${p}_wlp_minus`), color: '1F4E8C' } },
         { kind: 'bar', name: 'Wear, long-loading recovery (median, 90 % interval)', color: C.long, alpha: 0.75, val: num(`${p}_wlong`), err: { plus: num(`${p}_wlong_plus`), minus: num(`${p}_wlong_minus`), color: '9C3D16' } },
         { kind: 'line', name: 'Measured D', color: C.D, marker: 'diamond', markerSize: 9, val: num('D') },
+  { kind: 'line', name: 'Measurement uncertainty (2·SD of D)', color: '8A5CD6', marker: 'dash', markerSize: 16, val: num('D2sd') },
       ],
     });
   };
 
   const hasWear = (p: string) => (values.get(`${p}_w`) ?? []).some(ok);
-  const CREEP_NOTE = 'Bars: median remaining creep at the scan; whiskers: 90 % interval (P5–P95). Diamond: measured D ± 2 SD (no diamond when HipWear did not detect a penetration: D is then only known to be below the detection limit). Dash: detection limit. Triangle: minimum remaining creep from the elevations. Wear is the gap between D and the remaining creep.';
+  const CREEP_NOTE = 'Bars: median remaining creep at the scan; whiskers: 90 % interval (P5–P95). Diamond: measured D ± 2 SD (no diamond when HipWear did not detect a penetration: D is then only known to be below the detection limit). Grey dash: detection limit. Purple dash: measurement uncertainty of that liner (2·SD of D). Triangle: minimum remaining creep from the elevations. Wear is the gap between D and the remaining creep.';
   const WEAR_NOTE = 'Dot: median wear (both recovery scenarios); vertical segment: from the long-loading to the L&P median (the recovery uncertainty). Labels: liner. Liners without a detected penetration have no wear estimate and are not plotted. 90 % intervals in the Chart data sheet.';
   type Table = { title: string; note: string; rows: Cell[][] };
   const chartSheet = (name: string, heading: string, parts: { note: string; xml: string; title: string }[], tables: Table[] = []): Sheet => {
     // explanations first, charts below them (a chart never covers a text row)
     const rows: Cell[][] = [[heading], [`Editable charts: the series point at the '${CHART_DATA_SHEET}' sheet (values in µm).`]];
-    parts.forEach((p, i) => rows.push([`Chart ${i + 1} — ${p.title}: ${p.note}`]));
+    // long explanations split over several rows so that the sheet prints at a readable size
+    parts.forEach((p, i) => wrapText(`Chart ${i + 1} — ${p.title}: ${p.note}`).forEach((l) => rows.push([l])));
     const boldRows = [0];
     const charts: SheetChart[] = [];
     let r = rows.length + 2;
@@ -249,7 +263,7 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
     for (const t of tables) {
       while (rows.length < r) rows.push([]);
       rows.push([t.title]); boldRows.push(rows.length - 1);
-      rows.push([t.note]);
+      wrapText(t.note).forEach((l) => rows.push([l]));
       boldRows.push(rows.length);                       // header row of the table
       rows.push(...t.rows);
       r = rows.length + 2;
@@ -271,7 +285,7 @@ export function seriesChartSheets(res: SeriesResult[]): Sheet[] {
   }];
   const anyWear = hasWear('d') || hasWear('s');
   const scenParts = anyWear ? (['dynamic', 'static'] as Loading[]).map((mode) => ({
-    note: 'Bars: median wear with each recovery scenario; whiskers: 90 % interval (P5–P95). Diamond: measured D. Liners whose penetration was not detected have no wear estimate (empty).',
+    note: 'Bars: median wear with each recovery scenario; whiskers: 90 % interval (P5–P95). Diamond: measured D. Purple dash: measurement uncertainty of that liner (2·SD of D). Liners whose penetration was not detected have no wear estimate (empty).',
     xml: wearScenarioChart(mode), title: `${MODE_NAME[mode]} wear, L&P vs long loading`,
   })) : [];
   const scenTables: Table[] = anyWear ? [{

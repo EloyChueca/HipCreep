@@ -174,8 +174,8 @@ function renderWearScenarios(root: HTMLElement, res: SeriesResult[]): HTMLElemen
       card.className = 'chart-card';
       card.style.marginTop = '14px';
       card.innerHTML = `<div class="chart-title">Estimated wear per liner, L&amp;P vs long loading (${mode})</div>
-        <div class="chart-sub">Bars: 90 % interval of the wear (dot = median) with each recovery scenario. Diamond: measured D (the wear cannot exceed it by more than the uncertainty). n.d.: penetration not detected, no wear estimate.</div>
-        <div class="legend"><span class="item"><span class="swatch" style="background:${cssVar('--series-1')}"></span>Wear, L&amp;P recovery</span><span class="item"><span class="swatch" style="background:${cssVar('--series-2')}"></span>Wear, long-loading recovery</span><span class="item">◆ measured D</span></div>`;
+        <div class="chart-sub">Bars: 90 % interval of the wear (dot = median) with each recovery scenario. Diamond: measured D. Purple vertical line: 2·SD of that liner's measurement (a wear below it is within the measurement uncertainty). n.d.: penetration not detected, no wear estimate.</div>
+        <div class="legend"><span class="item"><span class="swatch" style="background:${cssVar('--series-1')}"></span>Wear, L&amp;P recovery</span><span class="item"><span class="swatch" style="background:${cssVar('--series-2')}"></span>Wear, long-loading recovery</span><span class="item">◆ measured D</span><span class="item"><span class="vtick" style="border-color:${cssVar('--series-4')}"></span>2·SD measurement uncertainty</span></div>`;
       wearPerLinerChart(card, res, mode);
       sec.appendChild(card);
     }
@@ -191,8 +191,8 @@ export function seriesChartCards(res: SeriesResult[], mode: Loading): HTMLElemen
   card.className = 'chart-card';
   card.style.marginTop = '14px';
   card.innerHTML = `<div class="chart-title">Measured penetration vs remaining creep, per liner (${mode})</div>
-    <div class="chart-sub">Bars: 90 % interval of the remaining creep (dot = median). Diamond: measured D ± 2 SD (open box: not detected, below the detection limit). Triangle: minimum creep from the elevations. Wear is the gap between D and the remaining creep.</div>
-    <div class="legend"><span class="item"><span class="swatch" style="background:${cssVar('--series-1')}"></span>Remaining creep, L&amp;P</span><span class="item"><span class="swatch" style="background:${cssVar('--series-2')}"></span>Remaining creep, long loading</span><span class="item">◆ measured D</span><span class="item">▲ elevation bound</span></div>`;
+    <div class="chart-sub">Bars: 90 % interval of the remaining creep (dot = median). Diamond: measured D ± 2 SD (open box: not detected, below the detection limit). Triangle: minimum creep from the elevations. Purple vertical line: 2·SD of that liner's measurement (creep or wear below it cannot be told apart from the measurement uncertainty). Wear is the gap between D and the remaining creep.</div>
+    <div class="legend"><span class="item"><span class="swatch" style="background:${cssVar('--series-1')}"></span>Remaining creep, L&amp;P</span><span class="item"><span class="swatch" style="background:${cssVar('--series-2')}"></span>Remaining creep, long loading</span><span class="item">◆ measured D</span><span class="item"><span class="vtick" style="border-color:${cssVar('--series-4')}"></span>2·SD measurement uncertainty</span><span class="item">▲ elevation bound</span></div>`;
   perLinerChart(card, res, mode);
   cards.push(card);
 
@@ -221,7 +221,7 @@ function wearPerLinerChart(container: HTMLElement, res: SeriesResult[], mode: Lo
       const w = r.modes[mode].byScenario[k]?.wear;
       if (w) { lo = Math.min(lo, w.p5); hi = Math.max(hi, w.p95); }
     }
-    if (r.measured && !r.measured.notDetected) hi = Math.max(hi, r.measured.penetrationUm);
+    if (r.measured && !r.measured.notDetected) hi = Math.max(hi, r.measured.penetrationUm, twoSd(r));
   }
   const span = hi - lo; lo -= 0.03 * span; hi += 0.03 * span;
   const X = (x: number) => m.l + ((x - lo) / (hi - lo)) * (W - m.l - m.r);
@@ -246,6 +246,7 @@ function wearPerLinerChart(container: HTMLElement, res: SeriesResult[], mode: Lo
       add(s, 'line', { x1: X(w.p5), x2: X(w.p95), y1: cy + dy, y2: cy + dy, stroke: col, 'stroke-width': 4, 'stroke-linecap': 'round', 'stroke-opacity': 0.55 });
       add(s, 'circle', { cx: X(w.p50), cy: cy + dy, r: 4, fill: col, stroke: 'var(--chart-surface)', 'stroke-width': 1.5 });
     });
+    uncertaintyTick(s, X, r, cy, rowH);
     const M = r.measured;
     if (M && !M.notDetected) {
       const x = X(M.penetrationUm);
@@ -254,11 +255,20 @@ function wearPerLinerChart(container: HTMLElement, res: SeriesResult[], mode: Lo
     const hit = add(s, 'rect', { x: m.l, y: cy - rowH / 2, width: W - m.l - m.r, height: rowH, fill: 'transparent' });
     hit.addEventListener('mousemove', (ev) => showTip(`<b>${escapeHtml(r.caseId)}</b> · ${mode}<div>D: ${M && !M.notDetected ? `${fmt(M.penetrationUm)} ± ${fmt(M.sdUm)}` : '—'} µm</div>
       <div>W L&amp;P: ${fmt(b.lp?.wear?.p50)} (${fmt(b.lp?.wear?.p5)}–${fmt(b.lp?.wear?.p95)})</div>
-      <div>W long: ${fmt(b.long?.wear?.p50)} (${fmt(b.long?.wear?.p5)}–${fmt(b.long?.wear?.p95)})</div>`, ev));
+      <div>W long: ${fmt(b.long?.wear?.p50)} (${fmt(b.long?.wear?.p5)}–${fmt(b.long?.wear?.p95)})</div>${M && !M.notDetected ? `<div>2·SD (measurement uncertainty): ${fmt(2 * M.sdUm)} µm</div>` : ''}`, ev));
     hit.addEventListener('mouseleave', hideTip);
   });
   container.appendChild(s);
 }
+
+/** Short vertical line at 2·SD of the liner's measurement, spanning its row */
+function uncertaintyTick(s: SVGSVGElement, X: (x: number) => number, r: SeriesResult, cy: number, rowH: number): void {
+  const M = r.measured;
+  if (!M || M.notDetected || !(M.sdUm > 0)) return;
+  const x = X(2 * M.sdUm);
+  add(s, 'line', { x1: x, x2: x, y1: cy - rowH / 2 + 3, y2: cy + rowH / 2 - 3, stroke: cssVar('--series-4'), 'stroke-width': 2 });
+}
+const twoSd = (r: SeriesResult) => (r.measured && !r.measured.notDetected ? 2 * r.measured.sdUm : 0);
 
 function perLinerChart(container: HTMLElement, res: SeriesResult[], mode: Loading): void {
   const W = 760, rowH = 34, m = { l: 150, r: 24, t: 10, b: 38 };
@@ -269,6 +279,7 @@ function perLinerChart(container: HTMLElement, res: SeriesResult[], mode: Loadin
     for (const k of ['lp', 'long'] as const) xMax = Math.max(xMax, d.byScenario[k]?.remaining.p95 ?? 0);
     if (r.measured) xMax = Math.max(xMax, r.measured.notDetected ? (r.measured.detectionLimitUm ?? 0) : r.measured.penetrationUm + 2 * r.measured.sdUm);
     if (r.elevationMinCreepUm) xMax = Math.max(xMax, r.elevationMinCreepUm.nominal);
+    xMax = Math.max(xMax, twoSd(r));
   }
   xMax *= 1.05;
   // liners with millimetre penetrations next to creep of tens of µm: switch to a log axis
@@ -297,6 +308,7 @@ function perLinerChart(container: HTMLElement, res: SeriesResult[], mode: Loadin
       add(s, 'line', { x1: X(b.remaining.p5), x2: X(b.remaining.p95), y1: cy + dy, y2: cy + dy, stroke: col, 'stroke-width': 4, 'stroke-linecap': 'round', 'stroke-opacity': 0.55 });
       add(s, 'circle', { cx: X(b.remaining.p50), cy: cy + dy, r: 4, fill: col, stroke: 'var(--chart-surface)', 'stroke-width': 1.5 });
     });
+    uncertaintyTick(s, X, r, cy, rowH);
     const M = r.measured;
     if (M && !M.notDetected) {
       add(s, 'line', { x1: X(M.penetrationUm - 2 * M.sdUm), x2: X(M.penetrationUm + 2 * M.sdUm), y1: cy, y2: cy, stroke: CI, 'stroke-width': 1.2 });
@@ -313,7 +325,7 @@ function perLinerChart(container: HTMLElement, res: SeriesResult[], mode: Loadin
     hit.addEventListener('mousemove', (ev) => showTip(`<b>${escapeHtml(r.caseId)}</b><div>D: ${M ? (M.notDetected ? `not detected (&lt; ${fmt(M.detectionLimitUm)})` : `${fmt(M.penetrationUm)} ± ${fmt(M.sdUm)}`) : '—'} µm</div>
       <div>C<sub>rem</sub> L&amp;P: ${fmt(d.byScenario.lp?.remaining.p50)} (${fmt(d.byScenario.lp?.remaining.p5)}–${fmt(d.byScenario.lp?.remaining.p95)})</div>
       <div>C<sub>rem</sub> long: ${fmt(d.byScenario.long?.remaining.p50)} (${fmt(d.byScenario.long?.remaining.p5)}–${fmt(d.byScenario.long?.remaining.p95)})</div>
-      <div>Elevation bound: ${fmt(r.elevationMinCreepUm?.nominal)} µm</div>`, ev));
+      <div>Elevation bound: ${fmt(r.elevationMinCreepUm?.nominal)} µm</div>${M && !M.notDetected ? `<div>2·SD (measurement uncertainty): ${fmt(2 * M.sdUm)} µm</div>` : ''}`, ev));
     hit.addEventListener('mouseleave', hideTip);
   });
   container.appendChild(s);

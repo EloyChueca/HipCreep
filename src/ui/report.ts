@@ -10,7 +10,7 @@ import { binPolar, minCreepDepthUm, modelToPolar, syntheticBases, type Elevation
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import type { UiSettings } from './form.ts';
 import { fmt, num, pct, fmtTime, escapeHtml, cssVar } from './format.ts';
-import { lineChart, rangeChart, histogram, divergingBars, type LineSeries, type RangeRow } from './charts.ts';
+import { lineChart, rangeChart, histogram, divergingBars, type LineSeries, type RangeRow, type RefLine } from './charts.ts';
 import { recoveryCurve, sensitivity } from '../model/sensitivity.ts';
 import { elevationStatus, type ElevationStatus } from '../model/series.ts';
 import { renderMap } from './polarmap.ts';
@@ -33,6 +33,11 @@ export interface ReportData {
 const LAW_COLOR: Record<LawId, string> = { lee2003: '--series-1', lee1998: '--series-4', deng1998: '--series-2', lewis2001: '--series-3' };
 export const lawColor = (id: LawId) => cssVar(LAW_COLOR[id]);
 const MODE_LABEL: Record<Loading, string> = { static: 'Static', dynamic: 'Dynamic' };
+
+/** Measurement uncertainty of D as used by the verdict (2·SD), as a reference line */
+function uncertaintyRef(m: { sdUm: number; notDetected?: boolean } | null | undefined): RefLine[] {
+  return m && !m.notDetected && m.sdUm > 0 ? [{ x: 2 * m.sdUm, label: `2·SD ${fmt(2 * m.sdUm)}`, color: cssVar('--series-4') }] : [];
+}
 
 function section(root: HTMLElement, title: string, lead?: string): HTMLElement {
   const s = document.createElement('section');
@@ -234,9 +239,10 @@ function renderMonteCarloSection(root: HTMLElement, d: ReportData): void {
   mcCard.className = 'chart-card';
   mcCard.innerHTML = `<div class="chart-title">Creep at explantation by law and loading mode (µm)</div>`;
   sec.appendChild(mcCard);
-  const mk = c.measured
-    ? (c.measured.notDetected ? { x: c.measured.detectionLimitUm ?? 0, label: 'detection limit' } : { x: c.measured.penetrationUm, label: 'measured D' })
-    : undefined;
+  const mk: RefLine[] = c.measured
+    ? (c.measured.notDetected ? [{ x: c.measured.detectionLimitUm ?? 0, label: 'detection limit' }]
+      : [{ x: c.measured.penetrationUm, label: 'measured D' }, ...uncertaintyRef(c.measured)])
+    : [];
   rangeChart(mcCard, rr, 'creep at explantation (µm)', mk);
   const statRow = (name: string, s: Stats | null) => s ? `<tr><td>${name}</td><td>${fmt(s.p5)}</td><td>${fmt(s.p25)}</td><td><b>${fmt(s.p50)}</b></td><td>${fmt(s.p75)}</td><td>${fmt(s.p95)}</td></tr>` : '';
   // sampling precision of the reported percentiles (batch means)
@@ -281,11 +287,12 @@ function renderRecoverySection(root: HTMLElement, d: ReportData): void {
     addSc('long', C2, 'Long load.');
     const m = c.measured;
     if (m && !m.notDetected) series.push({ label: `measured D ${fmt(m.penetrationUm)} µm`, color: CI, x: xs, y: xs.map(() => m.penetrationUm), dash: '6 3', width: 1.5 });
+    if (m && !m.notDetected && m.sdUm > 0) series.push({ label: `2·SD ${fmt(2 * m.sdUm)} µm`, color: cssVar('--series-4'), x: xs, y: xs.map(() => 2 * m.sdUm), dash: '2 3', width: 1.5 });
     if (m?.notDetected && m.detectionLimitUm) series.push({ label: `detection limit ${fmt(m.detectionLimitUm)} µm`, color: CI, x: xs, y: xs.map(() => m.detectionLimitUm!), dash: '6 3', width: 1.5 });
     const card = document.createElement('div');
     card.className = 'chart-card';
     card.innerHTML = `<div class="chart-title">Remaining creep vs time unloaded — ${mode}</div>
-      <div class="chart-sub">Median (solid) and 90 % interval (dashed) of each recovery scenario${m && !m.notDetected ? '; wear W = D − C<sub>rem</sub> is the gap to the measured D' : ''}.</div>`;
+      <div class="chart-sub">Median (solid) and 90 % interval (dashed) of each recovery scenario${m && !m.notDetected ? '; wear W = D − C<sub>rem</sub> is the gap to the measured D; purple dotted line: 2·SD of the measurement (uncertainty)' : ''}.</div>`;
     grid.appendChild(card);
     lineChart(card, {
       series, xLabel: 'days unloaded before scanning (log scale)', yLabel: 'remaining creep (µm)', xFormat: fmtTime,
@@ -362,7 +369,7 @@ function renderDecomposition(root: HTMLElement, d: ReportData): void {
     cardH.innerHTML = `<div class="chart-title">Estimated wear W — ${mode}</div>
       <div class="chart-sub">Median ${fmt(s.wear!.p50)} µm · 90 % ${fmt(s.wear!.p5)} to ${fmt(s.wear!.p95)} µm · ${pct(s.probWearNegative)} of the samples left of 0</div>`;
     grid.appendChild(cardH);
-    histogram(cardH, mc.modes[mode].wearUm!, lawColor('lee2003'), 'wear W = D − Crem (µm)', [{ x: 0, label: 'W = 0' }, { x: m.penetrationUm, label: 'W = D' }]);
+    histogram(cardH, mc.modes[mode].wearUm!, lawColor('lee2003'), 'wear W = D − Crem (µm)', [{ x: 0, label: 'W = 0' }, { x: m.penetrationUm, label: 'W = D' }, ...uncertaintyRef(m)]);
   }
   sec.insertAdjacentHTML('beforeend', `<details class="explain"><summary>How to read the W histograms</summary>
     <ul class="notes">

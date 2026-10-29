@@ -153,11 +153,22 @@ export interface RangeRow {
   n: number;
 }
 
-/** Horizontal interval chart: P5–P95 whisker, P25–P75 bar, median dot */
-export function rangeChart(container: HTMLElement, rows: RangeRow[], xLabel: string, ref?: { x: number; label: string }): void {
+/** Dashed vertical reference line; labels of successive lines alternate above / inside the plot so they do not collide */
+function refLine(s: SVGSVGElement, x: number, y0: number, y1: number, ref: RefLine, k: number): void {
+  const col = ref.color ?? 'var(--text-secondary)';
+  add(s, 'line', { x1: x, x2: x, y1: y0, y2: y1, stroke: col, 'stroke-dasharray': '4 3', 'stroke-width': 1.5 });
+  const t = add(s, 'text', { x, y: k % 2 ? y0 + 11 : y0 - 8, 'text-anchor': 'middle' });
+  t.textContent = ref.label;
+  if (ref.color) t.setAttribute('style', `fill:${ref.color}`);
+}
+
+export interface RefLine { x: number; label: string; color?: string }
+
+/** Horizontal interval chart: reference lines (measured D, 2·SD…) are drawn as dashed verticals */
+export function rangeChart(container: HTMLElement, rows: RangeRow[], xLabel: string, refs: RefLine[] = []): void {
   const W = 760, rowH = 26, m = { l: 190, r: 24, t: 24, b: 38 };
   const H = m.t + m.b + rows.length * rowH;
-  const xMax = Math.max(1e-9, ...rows.map((r) => r.p95), ref?.x ?? 0) * 1.06;
+  const xMax = Math.max(1e-9, ...rows.map((r) => r.p95), ...refs.map((r) => r.x)) * 1.06;
   const X = (x: number) => m.l + (Math.max(0, x) / xMax) * (W - m.l - m.r);
   const s = svg(W, H);
   for (const t of niceTicks(0, xMax, 6)) {
@@ -165,10 +176,7 @@ export function rangeChart(container: HTMLElement, rows: RangeRow[], xLabel: str
     add(s, 'text', { x: X(t), y: H - m.b + 16, 'text-anchor': 'middle' }).textContent = fmt(t);
   }
   add(s, 'text', { x: (m.l + W - m.r) / 2, y: H - 6, 'text-anchor': 'middle' }).textContent = xLabel;
-  if (ref) {
-    add(s, 'line', { x1: X(ref.x), x2: X(ref.x), y1: m.t, y2: H - m.b, stroke: 'var(--text-secondary)', 'stroke-dasharray': '4 3', 'stroke-width': 1.5 });
-    add(s, 'text', { x: X(ref.x), y: m.t - 8, 'text-anchor': 'middle' }).textContent = ref.label;
-  }
+  refs.forEach((ref, k) => refLine(s, X(ref.x), m.t, H - m.b, ref, k));
   rows.forEach((r, i) => {
     const cy = m.t + i * rowH + rowH / 2;
     add(s, 'text', { x: m.l - 10, y: cy + 4, 'text-anchor': 'end' }).textContent = r.label;
@@ -185,7 +193,7 @@ export function rangeChart(container: HTMLElement, rows: RangeRow[], xLabel: str
 }
 
 /** Histogram of one sample set, with optional reference lines */
-export function histogram(container: HTMLElement, values: ArrayLike<number>, color: string, xLabel: string, refs: { x: number; label: string }[] = [], nBins = 30): void {
+export function histogram(container: HTMLElement, values: ArrayLike<number>, color: string, xLabel: string, refs: RefLine[] = [], nBins = 30): void {
   const arr = Array.from(values).filter(Number.isFinite);
   if (!arr.length) return;
   let lo = Math.min(...arr, ...refs.map((r) => r.x)), hi = Math.max(...arr, ...refs.map((r) => r.x));
@@ -214,10 +222,7 @@ export function histogram(container: HTMLElement, values: ArrayLike<number>, col
     r.addEventListener('mouseleave', hideTip);
   });
   add(s, 'line', { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, class: 'axisline' });
-  for (const rf of refs) {
-    add(s, 'line', { x1: X(rf.x), x2: X(rf.x), y1: m.t, y2: H - m.b, stroke: 'var(--text-secondary)', 'stroke-dasharray': '4 3', 'stroke-width': 1.5 });
-    add(s, 'text', { x: X(rf.x), y: m.t - 8, 'text-anchor': 'middle' }).textContent = rf.label;
-  }
+  refs.forEach((rf, k) => refLine(s, X(rf.x), m.t, H - m.b, rf, k));
   container.appendChild(s);
 }
 

@@ -227,6 +227,7 @@ table.data td:first-child, table.data th:first-child { text-align: left; }
 table.data td.note { text-align: left; color: var(--text-muted); font-size: 11px; }
 table.data tr:last-child td { border-bottom: none; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.vtick { display: inline-block; width: 0; height: 12px; border-left: 2px solid; margin-right: 6px; vertical-align: -2px; }
 .table-wrap { overflow-x: auto; }
 
 .chart-card { background: var(--chart-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px; position: relative; }
