@@ -290,6 +290,9 @@ details.explain.big > summary { font-size: 15px; color: var(--text-primary); }
 .subhead { font-size: 13px; margin: 16px 0 8px; color: var(--text-secondary); }
 .surface3d { margin-bottom: 4px; }
 .surface3d canvas.s3-canvas { border-radius: var(--radius-sm); touch-action: none; }
+.s3-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.s3-pair .s3-cap { font-size: 12px; color: var(--text-secondary); margin: 4px 0 4px 2px; font-weight: 600; }
+@media (max-width: 1000px) { .s3-pair { grid-template-columns: 1fr; } }
 
 /* law selection: show + Monte Carlo checkboxes */
 .law-row { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 3px 0; }

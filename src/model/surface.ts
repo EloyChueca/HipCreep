@@ -88,6 +88,9 @@ export interface SurfaceData {
   totalAreaMm2: number;
   maxThetaRad: number;
   bases: Bases;
+  /** Reference sphere of the analysis */
+  center: Vec3;
+  radiusMm: number;
 }
 
 export function analyseSurface(mesh: SurfaceMesh, frame: Frame): SurfaceData {
@@ -122,7 +125,7 @@ export function analyseSurface(mesh: SurfaceMesh, frame: Frame): SurfaceData {
     phiLoad[v] = Math.abs(Math.atan2(dot(m, B.e2), dot(m, B.e1)));
     if (area[v] > 0 && theta[v] > maxTheta) maxTheta = theta[v];
   }
-  return { n, devUm, area, theta, azimuth, psi, phiLoad, totalAreaMm2: total, maxThetaRad: maxTheta, bases: B };
+  return { n, devUm, area, theta, azimuth, psi, phiLoad, totalAreaMm2: total, maxThetaRad: maxTheta, bases: B, center: [frame.center[0], frame.center[1], frame.center[2]], radiusMm: frame.radiusMm };
 }
 
 // ------------------------------------------------------------

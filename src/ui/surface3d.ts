@@ -7,13 +7,15 @@
 // original sphere (elevation, added material) is positive / up and penetration
 // (wear, creep) is negative / down — the opposite of the 2D maps. The colours keep
 // their physical meaning (red = penetration) so they match the 2D maps. Canvas 2D renderer (painter's algorithm), no dependencies.
-// Drag to rotate, wheel to zoom, double-click to reset.
+// Drag to rotate, wheel to zoom, double-click to reset. With a liner (liner3d.ts)
+// the scanned cup is drawn beside it with the same camera.
 // ============================================================
 
 import type { PolarGrid } from '../model/surface.ts';
 import { colorizer, type ColorScale } from './polarmap.ts';
 import { cssVar, fmt } from './format.ts';
 import { showTip, hideTip } from './charts.ts';
+import { drawLiner, type LinerDisplay, type Camera } from './liner3d.ts';
 
 export interface Surface3DField {
   key: string;
@@ -28,6 +30,8 @@ export interface Surface3DOptions {
   /** Radius used to convert the polar angle into arc length (mm) */
   radiusMm: number;
   title?: string;
+  /** The scanned liner, drawn beside the plane with the same camera */
+  liner?: LinerDisplay;
 }
 
 interface Mesh3D {
@@ -131,6 +135,7 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
       <label>Field <select class="s3-field">${o.fields.map((f) => `<option value="${f.key}">${f.label}</option>`).join('')}</select></label>
       <label>Vertical exaggeration <input class="s3-exag" type="range" min="-2" max="2" step="0.05" value="0" style="vertical-align:middle;width:140px"></label>
       <label>× <input class="s3-exag-num" type="number" min="0.1" step="any" style="width:80px" title="Height magnification relative to the true scale (1 = true scale)"> vs true scale</label>
+      ${o.liner ? '<label title="Magnify the measured deviation of the liner radially by the same factor as the plane heights"><input class="s3-lexag" type="checkbox"> exaggerate the liner too</label>' : ''}
       <button class="btn s3-reset" type="button">Reset view</button>
     </div>`;
   const canvas = document.createElement('canvas');
@@ -141,7 +146,27 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
   canvas.style.cursor = 'grab';
   canvas.setAttribute('role', 'img');
   canvas.setAttribute('aria-label', '3D height map of the deviation from the original sphere');
-  card.appendChild(canvas);
+  let linerCanvas: HTMLCanvasElement | null = null;
+  if (o.liner) {
+    // plane and scanned liner side by side, one camera for both
+    const pair = document.createElement('div');
+    pair.className = 's3-pair';
+    const cellA = document.createElement('div'), cellB = document.createElement('div');
+    cellA.innerHTML = '<div class="s3-cap">Sphere → plane (height = deviation)</div>';
+    cellB.innerHTML = '<div class="s3-cap">Scanned liner (real geometry, cup opening up)</div>';
+    cellA.appendChild(canvas);
+    linerCanvas = document.createElement('canvas');
+    linerCanvas.className = 's3-canvas';
+    Object.assign(linerCanvas.style, { width: '100%', height: '460px', display: 'block', cursor: 'grab' });
+    linerCanvas.setAttribute('role', 'img');
+    linerCanvas.setAttribute('aria-label', '3D view of the scanned liner coloured like the plane');
+    cellB.appendChild(linerCanvas);
+    pair.append(cellA, cellB);
+    card.appendChild(pair);
+    card.querySelector('.chart-sub')!.insertAdjacentHTML('beforeend', ' <b>Right: the scanned liner</b> seen with the same camera — turning or zooming either view turns both, and seen from above the plane and the inside of the cup show the same place (pole at the centre, penetration direction up). It is drawn at its real geometry, coloured with the value of the plane cell under each point; tick “exaggerate the liner too” to magnify its measured deviation radially by the same factor as the plane.');
+  } else {
+    card.appendChild(canvas);
+  }
   const legend = document.createElement('canvas');
   legend.width = 600; legend.height = 96;
   legend.style.width = '100%'; legend.style.maxWidth = '300px';
@@ -158,7 +183,7 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
   let field = o.fields[0];
   let mesh = buildMesh(field.grid, o.radiusMm);
   let color = colorizer(field.scale);
-  let yaw = -0.5, pitch = 50 * Math.PI / 180, zoom = 1;
+  const cam: Camera = { yaw: -0.5, pitch: 50 * Math.PI / 180, zoom: 1 };
   let projX = new Float64Array(0), projY = new Float64Array(0);
   let order: number[] = [];
   let raf = 0;
@@ -184,6 +209,7 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
 
   const draw = () => {
     raf = 0;
+    const { yaw, pitch, zoom } = cam;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const W = canvas.clientWidth, H = canvas.clientHeight;
     if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
@@ -283,7 +309,12 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
       g.fillText(`${lab} ${fmt(mesh.v[i])} ${field.unit}`, projX[i] + 6, projY[i] - 6);
     }
   };
-  const request = () => { if (!raf) raf = requestAnimationFrame(draw); };
+  const drawBoth = () => {
+    draw();
+    const lex = (card.querySelector('.s3-lexag') as HTMLInputElement | null)?.checked;
+    if (linerCanvas && o.liner) drawLiner(linerCanvas, o.liner, cam, lex ? baseScale() * exag : 0.001, field.grid, color);
+  };
+  const request = () => { if (!raf) raf = requestAnimationFrame(drawBoth); };
 
   const pointIn = (px: number, py: number, idx: number[]): boolean => {
     let inside = false;
@@ -295,12 +326,23 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
   };
 
   let drag: { x: number; y: number } | null = null;
-  canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); canvas.style.cursor = 'grabbing'; hideTip(); });
-  canvas.addEventListener('pointerup', (e) => { drag = null; canvas.releasePointerCapture(e.pointerId); canvas.style.cursor = 'grab'; });
+  // rotation and zoom: the same camera for the plane and the liner
+  for (const cv of [canvas, linerCanvas].filter(Boolean) as HTMLCanvasElement[]) {
+    cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing'; hideTip(); });
+    cv.addEventListener('pointerup', (e) => { drag = null; cv.releasePointerCapture(e.pointerId); cv.style.cursor = 'grab'; });
+    cv.addEventListener('wheel', (e) => { e.preventDefault(); cam.zoom = Math.max(0.4, Math.min(6, cam.zoom * Math.exp(-e.deltaY * 0.0015))); request(); }, { passive: false });
+    if (cv !== canvas) cv.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      cam.yaw += (e.clientX - drag.x) * 0.01;
+      cam.pitch = Math.max(0.05, Math.min(Math.PI / 2, cam.pitch + (e.clientY - drag.y) * 0.01));
+      drag = { x: e.clientX, y: e.clientY };
+      request();
+    });
+  }
   canvas.addEventListener('pointermove', (e) => {
     if (drag) {
-      yaw += (e.clientX - drag.x) * 0.01;
-      pitch = Math.max(0.05, Math.min(Math.PI / 2, pitch + (e.clientY - drag.y) * 0.01));
+      cam.yaw += (e.clientX - drag.x) * 0.01;
+      cam.pitch = Math.max(0.05, Math.min(Math.PI / 2, cam.pitch + (e.clientY - drag.y) * 0.01));
       drag = { x: e.clientX, y: e.clientY };
       request();
       return;
@@ -320,9 +362,9 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
     hideTip();
   });
   canvas.addEventListener('mouseleave', hideTip);
-  canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom = Math.max(0.4, Math.min(6, zoom * Math.exp(-e.deltaY * 0.0015))); request(); }, { passive: false });
-  const reset = () => { yaw = -0.5; pitch = 50 * Math.PI / 180; zoom = 1; exagIn.value = '0'; exag = 1; request(); };
+  const reset = () => { cam.yaw = -0.5; cam.pitch = 50 * Math.PI / 180; cam.zoom = 1; exagIn.value = '0'; exag = 1; request(); };
   canvas.addEventListener('dblclick', reset);
+  linerCanvas?.addEventListener('dblclick', reset);
   (card.querySelector('.s3-reset') as HTMLButtonElement).addEventListener('click', reset);
   exagIn.addEventListener('input', () => { exag = Math.pow(10, parseFloat(exagIn.value)); request(); });
   // typed magnification (× vs true scale): any positive value, the slider follows within its range
@@ -342,7 +384,9 @@ export function renderSurface3D(container: HTMLElement, o: Surface3DOptions): vo
     drawLegend();
     request();
   });
+  card.querySelector('.s3-lexag')?.addEventListener('change', request);
   new ResizeObserver(request).observe(canvas);
+  if (linerCanvas) new ResizeObserver(request).observe(linerCanvas);
   drawLegend();
   request();
 }

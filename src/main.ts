@@ -39,7 +39,7 @@ const SERIES_TABS: TabSpec[] = [
   { id: 'unc', label: 'Uncertainty', match: /^Uncertainty budget/ },
 ];
 
-const VERSION = '0.15.0';
+const VERSION = '0.16.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();

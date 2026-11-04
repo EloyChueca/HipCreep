@@ -16,6 +16,7 @@ import { recoveryCurve, sensitivity } from '../model/sensitivity.ts';
 import { elevationStatus, type ElevationStatus } from '../model/series.ts';
 import { renderMap } from './polarmap.ts';
 import { renderSurface3D, type Surface3DField } from './surface3d.ts';
+import { buildLinerDisplay, type LinerDisplay } from './liner3d.ts';
 import { percentileSE, type Stats } from '../model/stats.ts';
 
 /** Display order of the loading modes (as in the summary table) */
@@ -517,6 +518,7 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
   holder.className = 'maps';
   sec.appendChild(holder);
 
+  let linerCache: { key: string; liner: LinerDisplay } | null = null;
   const draw = () => {
     holder.innerHTML = '';
     holder3d.innerHTML = '';
@@ -544,7 +546,14 @@ function renderSpherePlane(root: HTMLElement, d: ReportData): void {
         { key: 'wear', label: 'Estimated wear (measured − predicted creep)', grid: wear, scale: { kind: 'diverging', limit: lim }, unit: 'µm' },
         { key: 'pred', label: `Predicted remaining creep (${predLabel})`, grid: pred, scale: { kind: 'diverging', limit: lim }, unit: 'µm' },
       ];
-      renderSurface3D(holder3d, { fields, radiusMm: radius });
+      // the scanned liner beside the plane (decimated once per surface)
+      let liner: LinerDisplay | undefined;
+      if (d.loaded?.mesh) {
+        const key = `${d.surface.center.join(',')}|${d.surface.radiusMm}|${nT}|${nA}|${maxTheta}`;
+        if (linerCache?.key !== key) linerCache = { key, liner: buildLinerDisplay(d.loaded.mesh, d.surface, d.surface.center, d.surface.radiusMm, { nTheta: nT, nAz: nA, maxThetaDeg: maxTheta }) };
+        liner = linerCache.liner;
+      }
+      renderSurface3D(holder3d, { fields, radiusMm: radius, liner });
       renderMap(holder, { title: 'Measured deviation', subtitle: 'r − R (µm): + penetration, − elevation', grid: meas, scale: { kind: 'diverging', limit: lim }, unit: 'µm' });
       renderMap(holder, { title: 'Predicted remaining creep', subtitle: predLabel, grid: pred, scale: { kind: 'diverging', limit: lim }, unit: 'µm' });
       renderMap(holder, { title: 'Estimated wear', subtitle: 'measured − predicted remaining creep (µm)', grid: wear, scale: { kind: 'diverging', limit: lim }, unit: 'µm' });
