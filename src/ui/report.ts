@@ -2,7 +2,7 @@
 // HipCreep — results report
 // ============================================================
 
-import { elevationPlausibility } from '../model/series.ts';
+import { elevationPlausibility, LINEAR_OSTEOLYSIS_MM_PER_YEAR, VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR, LAW_TESTED_MAX_MPA } from '../model/series.ts';
 import type { CaseInput } from '../model/case.ts';
 import { LAWS, type LawId, type Loading } from '../model/laws.ts';
 import { MATERIALS, materialPreset } from '../model/materials.ts';
@@ -128,8 +128,29 @@ export function renderReport(root: HTMLElement, d: ReportData): void {
     rows.push(`<tr class="sep"><th scope="row">Measured penetration (HipWear) <span class="sym">D</span></th><td colspan="2" class="center"><b>${fmt(m.penetrationUm)}</b> <span class="unit-s">µm</span> ± ${fmt(m.sdUm)} µm (SD)${m.detectionLimitUm ? ` · detection limit ${fmt(m.detectionLimitUm)} µm` : ''}</td></tr>`);
     rows.push(`<tr class="hl"><th scope="row">Estimated wear <span class="sym">W = D − C<sub>rem</sub></span></th><td>${scCell(mc, 'dynamic', 'wear', S.dynamic.wear)}</td><td>${scCell(mc, 'static', 'wear', S.static.wear)}</td></tr>`);
     rows.push(`<tr><th scope="row">Share of D that is remaining creep</th><td><b>${pct(S.dynamic.creepShare?.p50)}</b></td><td><b>${pct(S.static.creepShare?.p50)}</b></td></tr>`);
+    const yrs = c.implantMonths / 12;
+    const rate = (st: Stats | null | undefined, fromUm: boolean, thr: number) => !st || !(yrs > 0) ? '—'
+      : `<b${st.p50 * (fromUm ? 1e-3 : 1) / yrs > thr ? ' class="warn-v"' : ''}>${(st.p50 * (fromUm ? 1e-3 : 1) / yrs).toFixed(fromUm ? 3 : 1)}</b> <span class="unit-s">${fromUm ? 'mm' : 'mm³'}/year</span><div class="range">${(st.p5 * (fromUm ? 1e-3 : 1) / yrs).toFixed(fromUm ? 3 : 1)} – ${(st.p95 * (fromUm ? 1e-3 : 1) / yrs).toFixed(fromUm ? 3 : 1)}</div>`;
+    rows.push(`<tr><th scope="row">Linear wear rate <span class="sym">W / years</span><div class="range">orange above ${LINEAR_OSTEOLYSIS_MM_PER_YEAR} mm/year (Dumbleton 2002)</div></th><td>${rate(S.dynamic.wear, true, LINEAR_OSTEOLYSIS_MM_PER_YEAR)}</td><td>${rate(S.static.wear, true, LINEAR_OSTEOLYSIS_MM_PER_YEAR)}</td></tr>`);
+    if (S.dynamic.wearVol) {
+      rows.push(`<tr><th scope="row">Volumetric wear <span class="sym">V − remaining creep volume</span><div class="range">HipWear volume ${fmt(m.volumeMm3)} ± ${fmt(m.volumeSdMm3 ?? 0)} mm³</div></th><td>${mcCell(S.dynamic.wearVol, 'mm³')}</td><td>${mcCell(S.static.wearVol, 'mm³')}</td></tr>`);
+      rows.push(`<tr><th scope="row">Volumetric wear rate<div class="range">orange above ${VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR} mm³/year (Oparaugo 2001)</div></th><td>${rate(S.dynamic.wearVol, false, VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR)}</td><td>${rate(S.static.wearVol, false, VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR)}</td></tr>`);
+    }
+    const bud = (b: typeof S.dynamic.budget) => b ? `<b>${(100 * b.measurementShare).toFixed(0)} %</b> measurement · ${(100 * (1 - b.measurementShare)).toFixed(0)} % model${b.measurementShareVolume != null ? `<div class="range">volumetric: ${(100 * b.measurementShareVolume).toFixed(0)} % measurement</div>` : ''}` : '—';
+    rows.push(`<tr><th scope="row">Uncertainty of the wear: share from the measurement of D<div class="range">var(W) = var(D) + var(C<sub>rem</sub>)</div></th><td>${bud(S.dynamic.budget)}</td><td>${bud(S.static.budget)}</td></tr>`);
   } else {
     rows.push(`<tr class="sep"><th scope="row">Measured penetration (HipWear) <span class="sym">D</span></th><td colspan="2" class="center muted">not available — only the creep prediction</td></tr>`);
+  }
+  {
+    const law = c.mcLaws[0] ?? c.laws[0];
+    const sim = (mode: Loading) => (d.det.rows.find((r) => r.law === law && r.mode === mode && r.temperature === 'in-vivo') ?? d.det.rows[0]).sim;
+    const R = c.headDiameterMm / 2;
+    const cell = (mode: Loading) => {
+      const x = sim(mode), area = 2 * Math.PI * R * R * (1 - Math.cos(x.contactHalfAngleFinalDeg * Math.PI / 180));
+      const fl = [x.edgeLoading ? 'edge loading' : '', x.peakPressureInitialMPa > LAW_TESTED_MAX_MPA ? `above ${LAW_TESTED_MAX_MPA} MPa: law extrapolated` : ''].filter(Boolean).join(' · ');
+      return `<b>${fmt(x.peakPressureInitialMPa)}</b> → ${fmt(x.peakPressureFinalMPa)} <span class="unit-s">MPa</span><div class="range">contact ${fmt(x.contactHalfAngleFinalDeg)}° · ${fmt(area)} mm²${d.elevation ? ` vs ${fmt(d.elevation.penetrationAreaMm2)} mm² penetrated (measured)` : ''}${fl ? ` · ${fl}` : ''}</div>`;
+    };
+    rows.push(`<tr class="sep"><th scope="row">Contact model: peak pressure, start → explantation<div class="range">laws tested at 2–${LAW_TESTED_MAX_MPA} MPa</div></th><td>${cell('dynamic')}</td><td>${cell('static')}</td></tr>`);
   }
   head.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data summary">
     <thead><tr><th></th><th>Dynamic <span class="muted">(gait cycles)</span></th><th>Static <span class="muted">(load held, upper bound)</span></th></tr></thead>

@@ -362,3 +362,25 @@ test('elevated zone: phantom volume close to the truth, peak above it by the noi
   near(z.volumeMm3, p.source.truth.elevationVolumeMm3, 0.15 * p.source.truth.elevationVolumeMm3);
   assert.ok(z.peakUm >= p.source.truth.elevationPeakUm && z.peak1mm2Um <= z.peakUm);
 });
+
+// ---------- v0.15: rates, volumes, cohort, budget ----------
+import { cohortFits } from '../src/model/series.ts';
+
+test('cohort fit recovers slope and intercept of exact data', () => {
+  const mk = (id: string, years: number, D: number): any => ({ caseId: id, years, materialLabel: 'Conventional, x', measured: { penetrationUm: D, sdUm: 10, notDetected: false },
+    modes: { dynamic: { remaining: { p50: 50 } }, static: { remaining: { p50: 90 } } } });
+  const f = cohortFits([mk('a', 1, 300), mk('b', 3, 500), mk('c', 6, 800)]).find((x) => x.group === 'Conventional')!;
+  near(f.slope, 100, 1e-9); near(f.intercept, 200, 1e-9); near(f.r2, 1, 1e-12);
+  near(f.modelCreepDyn, 50, 1e-12);
+});
+
+test('Monte Carlo: volumetric wear and the uncertainty budget', async () => {
+  const c = defaultCase(); c.samples = 300;
+  c.measured = { penetrationUm: 200, sdUm: 40, volumeMm3: 50, volumeSdMm3: 5 };
+  const mc = await runMonteCarlo(c);
+  const S = mc.summary.dynamic;
+  assert.ok(S.wearVol && S.wearVol.p50 < 50 && S.creepVolRem.p50 > 0);
+  near(S.wearVol!.p50, 50 - S.creepVolRem.p50, 6);
+  assert.ok(S.budget && S.budget.measurementShare > 0 && S.budget.measurementShare <= 1);
+  assert.ok(S.byScenario.lp!.creepShare && S.byScenario.long!.wearVol);
+});

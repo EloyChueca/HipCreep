@@ -197,6 +197,11 @@ input[type="number"]:focus, select:focus { outline: 2px solid var(--accent-prima
 .section { max-width: 1180px; margin: 0 auto 28px; }
 .section > h2 { font-size: 15px; margin-bottom: 4px; }
 .section > p.lead { color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5; max-width: 900px; }
+.tabbar { max-width: 1180px; margin: 0 auto 18px; display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 5; background: var(--bg-primary, var(--chart-surface)); padding-top: 6px; }
+.tabbar .tab { border: 1px solid transparent; border-bottom: none; background: none; padding: 7px 12px; border-radius: 6px 6px 0 0; color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer; margin-bottom: -1px; }
+.tabbar .tab:hover { color: var(--text-primary); background: var(--grid); }
+.tabbar .tab.active { color: var(--text-primary); font-weight: 600; border-color: var(--border-color); background: var(--chart-surface); }
+.section[hidden] { display: none; }
 .case-line { color: var(--text-secondary); margin-bottom: 14px; line-height: 1.5; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .card {
@@ -228,6 +233,10 @@ table.data td.note { text-align: left; color: var(--text-muted); font-size: 11px
 table.data tr:last-child td { border-bottom: none; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 .vtick { display: inline-block; width: 0; height: 12px; border-left: 2px solid; margin-right: 6px; vertical-align: -2px; }
+.budget { display: flex; height: 10px; width: 140px; border-radius: 3px; overflow: hidden; background: var(--grid); }
+.budget .b-meas { background: var(--series-4); }
+.budget .b-model { background: var(--series-1); }
+.warn-v { color: var(--series-2); }
 .table-wrap { overflow-x: auto; }
 
 .chart-card { background: var(--chart-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px; position: relative; }

@@ -239,6 +239,18 @@ export interface ModeSamples {
   wearUm: Float64Array | null;
   /** Only with a measurement: remaining creep / D */
   creepShare: Float64Array | null;
+  /** Remaining creep volume (mm³): creep volume of the simulation × (1 − R) */
+  creepVolRemMm3: Float64Array;
+  /** Only with a measured penetration volume: volumetric wear = V − remaining creep volume (mm³) */
+  wearVolMm3: Float64Array | null;
+}
+
+/** Share of the variance of the estimated wear that comes from the measurement of D (the rest: creep model) */
+export interface UncertaintyBudget {
+  /** var(D) / var(W) for the linear wear */
+  measurementShare: number;
+  /** var(V) / var(W_vol) for the volumetric wear, if available */
+  measurementShareVolume: number | null;
 }
 
 /** Sampled inputs kept per Monte Carlo sample (sensitivity analysis, recovery curves) */
@@ -273,16 +285,30 @@ export interface McResult {
   summary: Record<Loading, {
     creep: Stats; recovered: Stats; remaining: Stats;
     wear: Stats | null; creepShare: Stats | null; probWearNegative: number | null;
+    /** Remaining creep volume and volumetric wear (mm³) */
+    creepVolRem: Stats; wearVol: Stats | null;
+    /** Where the uncertainty of the wear comes from */
+    budget: UncertaintyBudget | null;
     /** Penetration not detected: fraction of samples whose remaining creep exceeds the detection limit */
     probRemainingAboveLod: number | null;
     /** Remaining creep and wear for each recovery scenario (null if the scenario was not sampled) */
-    byScenario: Record<RecoveryScenario, { remaining: Stats; wear: Stats | null; recovered: Stats; probWearNegative: number | null } | null>;
+    byScenario: Record<RecoveryScenario, { remaining: Stats; wear: Stats | null; recovered: Stats; probWearNegative: number | null; creepShare: Stats | null; creepVolRem: Stats; wearVol: Stats | null } | null>;
     byLaw: Partial<Record<LawId, Stats>>;
   }>;
   /** Pooled static + dynamic samples (envelope of both scenarios) */
   pooled: { creep: Stats; remaining: Stats; wear: Stats | null };
   recovery: Stats;
   elapsedMs: number;
+}
+
+function variance(a: ArrayLike<number>): number {
+  let m = 0, n = 0;
+  for (let i = 0; i < a.length; i++) if (Number.isFinite(a[i])) { m += a[i]; n++; }
+  if (n < 2) return 0;
+  m /= n;
+  let v = 0;
+  for (let i = 0; i < a.length; i++) if (Number.isFinite(a[i])) v += (a[i] - m) ** 2;
+  return v / (n - 1);
 }
 
 export async function runMonteCarlo(
@@ -297,12 +323,15 @@ export async function runMonteCarlo(
   const notDetected = !!meas?.notDetected;
   const lod = meas?.detectionLimitUm ?? 0;
   const split = !!meas && !notDetected;
+  const volMeas = meas && meas.volumeMm3 != null && Number.isFinite(meas.volumeMm3) ? { v: meas.volumeMm3, sd: Math.max(0, meas.volumeSdMm3 ?? 0) } : null;
   const mk = (): ModeSamples => ({
     creepUm: new Float64Array(n),
     recoveredUm: new Float64Array(n),
     remainingUm: new Float64Array(n),
     wearUm: split ? new Float64Array(n) : null,
     creepShare: split ? new Float64Array(n) : null,
+    creepVolRemMm3: new Float64Array(n),
+    wearVolMm3: split && volMeas ? new Float64Array(n) : null,
   });
   const mkInputs = (): McInputs => ({
     lawIndex: new Uint8Array(n), recoveredFraction: new Float64Array(n), scenario: new Uint8Array(n),
@@ -319,6 +348,8 @@ export async function runMonteCarlo(
   for (let mi = 0; mi < ORDER.length; mi++) {
     const mode = ORDER[mi];
     const rng = mulberry32(SEED[mode]);
+    // the measured volume comes from its own stream, so the other draws are those of the previous versions
+    const rngV = mulberry32((SEED[mode] ^ 0x2545f491) >>> 0);
     const inp = inputs[mode], ms = modes[mode];
     for (let s = 0; s < n; s++) {
       const li = Math.min(laws.length - 1, Math.floor(rng() * laws.length));
@@ -337,6 +368,8 @@ export async function runMonteCarlo(
       ms.creepUm[s] = C;
       ms.recoveredUm[s] = C * R;
       ms.remainingUm[s] = C * (1 - R);
+      ms.creepVolRemMm3[s] = sim.creepVolumeMm3 * (1 - R);
+      if (ms.wearVolMm3 && volMeas) ms.wearVolMm3[s] = normal(rngV, volMeas.v, volMeas.sd) - ms.creepVolRemMm3[s];
       if (ms.wearUm && ms.creepShare) {
         ms.wearUm[s] = D - C * (1 - R);
         ms.creepShare[s] = D > 0 ? (C * (1 - R)) / D : NaN;
@@ -378,7 +411,10 @@ export async function runMonteCarlo(
       const sub = (a: Float64Array) => Float64Array.from(idx, (i) => a[i]);
       let pn: number | null = null;
       if (ms.wearUm) { let k = 0; for (const i of idx) if (ms.wearUm[i] < 0) k++; pn = k / idx.length; }
-      byScenario[sc] = { remaining: summarize(sub(ms.remainingUm)), wear: ms.wearUm ? summarize(sub(ms.wearUm)) : null, recovered: summarize(sub(Rarr)), probWearNegative: pn };
+      byScenario[sc] = {
+        remaining: summarize(sub(ms.remainingUm)), wear: ms.wearUm ? summarize(sub(ms.wearUm)) : null, recovered: summarize(sub(Rarr)), probWearNegative: pn,
+        creepShare: ms.creepShare ? summarize(sub(ms.creepShare)) : null, creepVolRem: summarize(sub(ms.creepVolRemMm3)), wearVol: ms.wearVolMm3 ? summarize(sub(ms.wearVolMm3)) : null,
+      };
     });
     summary[mode] = {
       byScenario,
@@ -388,6 +424,12 @@ export async function runMonteCarlo(
       remaining: summarize(ms.remainingUm),
       wear: ms.wearUm ? summarize(ms.wearUm) : null,
       creepShare: ms.creepShare ? summarize(ms.creepShare) : null,
+      creepVolRem: summarize(ms.creepVolRemMm3),
+      wearVol: ms.wearVolMm3 ? summarize(ms.wearVolMm3) : null,
+      budget: ms.wearUm && inputs[mode].measuredUm ? {
+        measurementShare: Math.min(1, variance(inputs[mode].measuredUm!) / Math.max(1e-12, variance(ms.wearUm))),
+        measurementShareVolume: ms.wearVolMm3 && volMeas ? Math.min(1, (volMeas.sd * volMeas.sd) / Math.max(1e-12, variance(ms.wearVolMm3))) : null,
+      } : null,
       probWearNegative: pNeg,
       byLaw,
     };

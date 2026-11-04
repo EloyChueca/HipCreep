@@ -15,8 +15,31 @@ import { buildForm, writeForm, readForm, syncEnabled, showMaterialPreset, defaul
 import { renderEmpty, renderReport, type ReportData } from './ui/report.ts';
 import { download, resultsCsv, resultsJson, seriesXlsx } from './ui/export.ts';
 import { escapeHtml, fmt } from './ui/format.ts';
+import { tabify, type TabSpec } from './ui/tabs.ts';
 
-const VERSION = '0.14.0';
+const REPORT_TABS: TabSpec[] = [
+  { id: 'summary', label: 'Summary', match: /^Case / },
+  { id: 'creep', label: 'Creep model', match: /^Creep at explantation|^Monte Carlo ranges/ },
+  { id: 'recovery', label: 'Recovery', match: /^Time before scanning/ },
+  { id: 'wear', label: 'Creep / wear split', match: /^Penetration = / },
+  { id: 'surface', label: 'Surface (3D, maps, elevations)', match: /^Sphere/ },
+  { id: 'sens', label: 'Sensitivity', match: /^Sensitivity/ },
+  { id: 'methods', label: 'Methods & references', match: /^Model, assumptions/ },
+];
+const SERIES_TABS: TabSpec[] = [
+  { id: 'inputs', label: 'Liners (inputs)', match: /^Series of / },
+  { id: 'dyn', label: 'Dynamic', match: /dynamic mode \(independent/ },
+  { id: 'stat', label: 'Static', match: /static mode \(independent/ },
+  { id: 'cmp', label: 'Dynamic vs static', match: /^Dynamic vs static/ },
+  { id: 'wear', label: 'Wear: L&P vs long', match: /^Wear — / },
+  { id: 'rates', label: 'Wear rates & volumes', match: /^Wear rates/ },
+  { id: 'cohort', label: 'Cohort', match: /^Cohort/ },
+  { id: 'elev', label: 'Elevated material', match: /^Elevated material/ },
+  { id: 'contact', label: 'Contact model', match: /^Contact model/ },
+  { id: 'unc', label: 'Uncertainty', match: /^Uncertainty budget/ },
+];
+
+const VERSION = '0.15.0';
 
 let caseInput: CaseInput = defaultCase();
 let ui: UiSettings = defaultUi();
@@ -162,6 +185,7 @@ async function runSeries(items: SeriesItem[]): Promise<void> {
     const caseNow = caseInput;
     const saveXlsx = () => download(xlsxName, seriesXlsx(res, caseNow, settings, VERSION));
     renderSeriesResults(root, items, res, seriesCb, () => download('hipcreep-series.csv', seriesCsv(res), 'text/csv'), saveXlsx);
+    tabify(root, SERIES_TABS, 'series', /^Export$/, 'dyn');
     // Excel file with the results, downloaded automatically at the end of the series
     let xlsxNote = `Excel file downloaded: ${xlsxName}`;
     try { saveXlsx(); } catch (e) { console.error(e); xlsxNote = `Excel file could not be created (${(e as Error).message}); use the Series (Excel) button`; }
@@ -221,6 +245,7 @@ function render(d: ReportData): void {
   root.appendChild(ex);
   $('btn-json').addEventListener('click', () => download(`hipcreep-${d.c.caseId}.json`, resultsJson(d, VERSION)));
   $('btn-csv').addEventListener('click', () => download(`hipcreep-${d.c.caseId}.csv`, resultsCsv(d), 'text/csv'));
+  tabify(root, REPORT_TABS, 'report', /^Export$/);
   root.scrollTop = top;
 }
 

@@ -8,7 +8,7 @@ import { MODES } from '../model/analysis.ts';
 import type { Stats } from '../model/stats.ts';
 import { writeXlsx, XLSX_MIME, type Sheet } from '../io/xlsx.ts';
 import { seriesChartSheets } from './excelCharts.ts';
-import { SERIES_COLUMNS, seriesTable, type SeriesResult } from '../model/series.ts';
+import { SERIES_COLUMNS, seriesTable, cohortFits, LAW_TESTED_MAX_MPA, type SeriesResult } from '../model/series.ts';
 import type { CaseInput } from '../model/case.ts';
 
 export function download(name: string, content: string | Blob, type = 'application/json'): void {
@@ -157,6 +157,9 @@ export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: 
     ['Comparison', 'Dynamic vs static (two independent Monte Carlo simulations): remaining creep per liner (editable chart) and a table per liner with Cmax, remaining creep and wear'],
     ['Wear L&P vs long', 'Wear with each recovery scenario (Lee & Pienkowski vs long loading), dynamic and static: editable charts per liner and a table'],
     ['Elevated zone', 'Material above the original sphere as measured (no model), only around the load zone (model contact zone about the penetration direction + margin): area, volume with its range for the reference-radius uncertainty, volume above 2σ of the noise, highest point, what was left out outside the zone, and whether it is plausible as creep'],
+    ['Wear rates & volumes', 'Creep share of D, linear wear rate (mm/year), volumetric wear (HipWear volume − remaining creep volume, mm³) and its rate, and the share of the wear uncertainty that comes from the measurement'],
+    ['Contact model', 'Peak contact pressure of the nominal creep model (start and explantation), contact area vs the penetrated area measured by HipWear, edge loading, pressure beyond the tested range of the laws'],
+    ['Cohort', 'Measured penetration vs years in vivo by polyethylene: penetration rate (slope) and early penetration (intercept) compared with the model remaining creep'],
     ['Chart data', 'The cells the charts point at; error-bar lengths are formulas on the percentile cells, so editing a value updates the charts'],
     [],
     ['Column', 'Meaning'], ...SERIES_COLUMNS.map((h) => [h, COLUMN_NOTES[h] ?? '']),
@@ -173,6 +176,49 @@ export function seriesXlsx(res: SeriesResult[], c: CaseInput, opt: { refRadius: 
           z(e?.volumeAboveNoiseMm3, 3), z(e?.peakUm), z(e?.peakThetaDeg), z(e?.peak1mm2Um), z(e?.excludedVolumeMm3, 3), z(e?.sigmaUm),
           e ? (e.plausibility.ok ? 'yes' : 'doubtful') : null, e?.plausibility.flags.join('; ') ?? null]; })],
     });
+  }
+  // wear rates, volumes, creep share, uncertainty budget and contact model, one row per liner
+  {
+    const z = (x: number | null | undefined, d = 1) => (x != null && Number.isFinite(x) ? Number(x.toFixed(d)) : null);
+    const st3 = (st: { p50: number; p5: number; p95: number } | null | undefined, k = 1, d = 1) => [z(st ? st.p50 * k : null, d), z(st ? st.p5 * k : null, d), z(st ? st.p95 * k : null, d)];
+    const head: (string | number | null)[] = ['Liner', 'Polyethylene', 'Years in vivo', 'D (µm)', 'SD of D (µm)'];
+    for (const M of ['Dynamic', 'Static']) head.push(
+      `${M}: creep share of D, median`, 'P5', 'P95',
+      `${M}: linear wear rate (mm/year), median`, 'P5', 'P95',
+      `${M}: volumetric wear (mm³), median`, 'P5', 'P95',
+      `${M}: volumetric wear rate (mm³/year), median`, 'P5', 'P95',
+      `${M}: uncertainty share from the measurement, linear`, 'volumetric');
+    const rows = res.map((r) => {
+      const y = r.years > 0 ? r.years : NaN;
+      const D = r.measured && !r.measured.notDetected ? r.measured : null;
+      const row: (string | number | null)[] = [r.caseId, r.materialLabel.split(',')[0], z(r.years, 2), z(D?.penetrationUm), z(D?.sdUm)];
+      for (const mode of ['dynamic', 'static'] as const) {
+        const m = r.modes[mode];
+        row.push(...st3(m.creepShare, 100, 1), ...st3(m.wear, 1e-3 / y, 4), ...st3(m.wearVol, 1, 2), ...st3(m.wearVol, 1 / y, 2),
+          z(m.budget ? 100 * m.budget.measurementShare : null, 0), z(m.budget?.measurementShareVolume != null ? 100 * m.budget.measurementShareVolume : null, 0));
+      }
+      return row;
+    });
+    sheets.push({ name: 'Wear rates & volumes', header: true, widths: [18, 22, ...Array(head.length - 2).fill(13)], rows: [head, ...rows] });
+
+    const ch = ['Liner', 'Polyethylene', 'Dynamic: peak pressure at start (MPa)', 'Dynamic: at explantation (MPa)', 'Static: peak pressure at start (MPa)', 'Static: at explantation (MPa)',
+      'Contact half-angle, static (°)', 'Model contact area, static (mm²)', 'Measured penetrated area (mm²)', 'Penetrated / contact', 'Edge loading', `Pressure above ${LAW_TESTED_MAX_MPA} MPa (law extrapolated)`];
+    const cr = res.map((r) => {
+      const d = r.modes.dynamic.contact, st = r.modes.static.contact;
+      return [r.caseId, r.materialLabel.split(',')[0], z(d.peakInitialMPa, 2), z(d.peakFinalMPa, 2), z(st.peakInitialMPa, 2), z(st.peakFinalMPa, 2), z(st.halfAngleDeg), z(st.areaMm2), z(r.penetratedAreaMm2),
+        r.penetratedAreaMm2 != null && st.areaMm2 > 0 ? z(r.penetratedAreaMm2 / st.areaMm2, 2) : null, d.edgeLoading || st.edgeLoading ? 'yes' : 'no', st.beyondTestedPressure ? 'yes' : 'no'];
+    });
+    sheets.push({ name: 'Contact model', header: true, widths: [18, 22, ...Array(ch.length - 2).fill(15)], rows: [ch, ...cr] });
+
+    const fits = cohortFits(res);
+    if (fits.length) {
+      const fh = ['Group', 'n', 'Penetration rate (mm/year)', 'SE', 'Intercept: early penetration (µm)', 'SE', 'R²', 'Model remaining creep, dynamic (µm)', 'Model remaining creep, static (µm)'];
+      const fr = fits.map((f) => [f.group, f.n, z(f.slope / 1000, 4), z(f.slopeSe / 1000, 4), z(f.intercept), z(f.interceptSe), z(f.r2, 3), z(f.modelCreepDyn), z(f.modelCreepStat)]);
+      const pts: (string | number | null)[][] = [['Liner', 'Group', 'Years in vivo', 'D (µm)', 'SD of D (µm)']];
+      for (const f of fits) if (f.group !== 'All liners') for (const p of f.points) pts.push([p.caseId, f.group, z(p.years, 2), z(p.D), z(p.sd)]);
+      sheets.push({ name: 'Cohort', header: true, widths: [22, 8, 16, 10, 18, 10, 8, 18, 18], rows: [fh, ...fr, [], ['Points (liners with a detected penetration)'], ...pts],
+        boldRows: [fr.length + 2, fr.length + 3] });
+    }
   }
   // editable charts (Dynamic / Static / Comparison) and the cells they point at
   sheets.push(...seriesChartSheets(res));

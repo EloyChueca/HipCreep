@@ -247,6 +247,23 @@ is within 4 % of the true elevation volume; the highest point exceeds the true p
 volume the model allows (static, P95, × the model's creep shape area), when the highest point lies within 10° of the
 analysed (trim) edge, or when nothing is above the noise.
 
+## 6b. Derived quantities (v0.15)
+
+* **Volumetric wear** = HipWear penetration volume (sampled with its SD) − remaining creep volume of the model
+  (creep volume of each Monte Carlo sample × (1 − R)); medians and 90 % intervals per mode and scenario.
+* **Wear rates**: linear W / years (mm/year) and volumetric (mm³/year); references 0.1 mm/year (osteolysis rare
+  below it, Dumbleton et al. 2002, J Arthroplasty 17:649) and 80 mm³/year (osteolysis frequent above it, Oparaugo et
+  al. 2001, Acta Orthop Scand 72:22).
+* **Creep share** of D = remaining creep / D, per mode and scenario.
+* **Cohort** (series): least-squares line D = a + b·years per polyethylene (≥ 3 liners with a detected
+  penetration): b = penetration rate, a = early penetration (creep + bedding-in), compared with the mean model
+  remaining creep of the same liners. Nothing is fitted to the retrievals.
+* **Contact model vs surface**: peak pressure of the nominal simulation at the start and at explantation, contact
+  half-angle and area (2πR²(1 − cos ψ)), edge loading, pressure above the 2–8 MPa range of the creep tests (law
+  extrapolated), and the penetrated area measured by HipWear (deviation beyond 2σ) with their ratio.
+* **Uncertainty budget**: W = D − C_rem with D and C_rem drawn independently, so var(W) = var(D) + var(C_rem);
+  the measurement share is var(D) / var(W) (volumetric: var(V) / var(W_vol)).
+
 ## 7. Not modelled
 
 Backside creep and liner seating in the shell, frictional heating, oxidation, impingement/edge loading, wear–creep

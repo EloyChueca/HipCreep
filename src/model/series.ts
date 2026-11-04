@@ -11,7 +11,7 @@
 import type { CaseInput } from './case.ts';
 import type { Loading } from './laws.ts';
 import { materialPreset, type MaterialId } from './materials.ts';
-import { MODES, runDeterministic, runMonteCarlo, verdict, type McResult, type Verdict } from './analysis.ts';
+import { MODES, runDeterministic, runMonteCarlo, verdict, type McResult, type Verdict, type UncertaintyBudget } from './analysis.ts';
 import { analyseSurface, elevationAnalysis, minCreepDepthUm, type ElevatedZone, type ElevationResult, type LoadZone } from './surface.ts';
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import type { Stats } from './stats.ts';
@@ -106,9 +106,21 @@ export interface SeriesModeResult {
   creep: Stats;
   remaining: Stats;
   wear: Stats | null;
-  byScenario: Partial<Record<RecoveryScenario, { remaining: Stats; wear: Stats | null; elevation: ElevationStatus | null }>>;
+  /** Remaining creep / D */
+  creepShare: Stats | null;
+  /** Remaining creep volume and volumetric wear (mm³) */
+  creepVolRem: Stats;
+  wearVol: Stats | null;
+  byScenario: Partial<Record<RecoveryScenario, { remaining: Stats; wear: Stats | null; elevation: ElevationStatus | null; creepShare: Stats | null; creepVolRem: Stats; wearVol: Stats | null }>>;
+  budget: UncertaintyBudget | null;
+  /** Nominal creep model in vivo: peak contact pressure at the start and at explantation (MPa), contact half-angle
+   *  at explantation (deg) and contact area (mm²), edge loading and pressure beyond the range of the law tests */
+  contact: { peakInitialMPa: number; peakFinalMPa: number; halfAngleDeg: number; areaMm2: number; edgeLoading: boolean; beyondTestedPressure: boolean; maxLawStressMPa: number };
   verdict: Verdict | null;
 }
+
+/** Pressure range of the creep tests behind the Lee laws (MPa) */
+export const LAW_TESTED_MAX_MPA = 8;
 
 export interface SeriesResult {
   caseId: string;
@@ -128,6 +140,8 @@ export interface SeriesResult {
   /** Measured elevated material around the load zone (no model): volume, area and peak above the original
    *  sphere, its range with the radius uncertainty, what was left out and a plausibility check; null without a mesh */
   elevatedZone: ElevatedZoneResult | null;
+  /** Measured area penetrated beyond the noise threshold (mm²), null without a mesh */
+  penetratedAreaMm2: number | null;
   warnings: string[];
   elapsedMs: number;
 }
@@ -140,7 +154,7 @@ export async function runSeriesCase(
   const mc: McResult = await runMonteCarlo(c);
   let elev: SeriesResult['elevationMinCreepUm'] = null;
   let zone: SeriesResult['elevatedZone'] = null;
-  let elevResult: ElevationResult | null = null, zoneShape = 0;
+  let elevResult: ElevationResult | null = null, zoneShape = 0, penArea: number | null = null;
   if (L.mesh) {
     const useMeasured = opt.refRadius === 'measured' && !!L.measuredRadiusMm;
     const R = useMeasured ? L.measuredRadiusMm! : L.commercialRadiusMm;
@@ -153,6 +167,7 @@ export async function runSeriesCase(
     elev = { nominal: minCreepDepthUm(e.nominal.netMm3, shape), lo: minCreepDepthUm(e.netRangeMm3[0], shape), hi: minCreepDepthUm(e.netRangeMm3[1], shape) };
     elevResult = e;
     zoneShape = shape;
+    penArea = e.penetrationAreaMm2;
   }
   const modes = {} as Record<Loading, SeriesModeResult>;
   for (const mode of MODES) {
@@ -160,10 +175,19 @@ export async function runSeriesCase(
     const byScenario: SeriesModeResult['byScenario'] = {};
     for (const k of ['lp', 'long'] as const) {
       const b = S.byScenario[k];
-      if (b) byScenario[k] = { remaining: b.remaining, wear: b.wear, elevation: elev ? elevationStatus(elev.nominal, b.remaining) : null };
+      if (b) byScenario[k] = { remaining: b.remaining, wear: b.wear, elevation: elev ? elevationStatus(elev.nominal, b.remaining) : null, creepShare: b.creepShare, creepVolRem: b.creepVolRem, wearVol: b.wearVol };
     }
+    const law = c.mcLaws[0] ?? c.laws[0];
+    const row = det.rows.find((r) => r.law === law && r.mode === mode && r.temperature === 'in-vivo') ?? det.rows[0];
+    const R = c.headDiameterMm / 2, half = row.sim.contactHalfAngleFinalDeg;
     modes[mode] = {
-      creep: S.creep, remaining: S.remaining, wear: S.wear, byScenario,
+      creep: S.creep, remaining: S.remaining, wear: S.wear, creepShare: S.creepShare, creepVolRem: S.creepVolRem, wearVol: S.wearVol, byScenario,
+      budget: S.budget,
+      contact: {
+        peakInitialMPa: row.sim.peakPressureInitialMPa, peakFinalMPa: row.sim.peakPressureFinalMPa, halfAngleDeg: half,
+        areaMm2: 2 * Math.PI * R * R * (1 - Math.cos(half * Math.PI / 180)), edgeLoading: row.sim.edgeLoading,
+        beyondTestedPressure: row.sim.peakPressureInitialMPa > LAW_TESTED_MAX_MPA, maxLawStressMPa: row.sim.maxLawStressMPa,
+      },
       verdict: c.measured ? verdict(c.measured, S.remaining, S.wear, S.probWearNegative) : null,
     };
   }
@@ -181,7 +205,7 @@ export async function runSeriesCase(
   return {
     caseId: c.caseId, file: L.name, years: c.implantMonths / 12, material: c.material, materialLabel: materialPreset(c.material, c.irradiation).label, bodyMassKg: c.bodyMassKg,
     exVivoDays: c.exVivoDays, headDiameterMm: c.headDiameterMm, thicknessMm: c.thicknessMm, measured: c.measured,
-    modes, elevationMinCreepUm: elev, elevatedZone: zone, warnings: L.warnings, elapsedMs: performance.now() - t0,
+    modes, elevationMinCreepUm: elev, elevatedZone: zone, penetratedAreaMm2: penArea, warnings: L.warnings, elapsedMs: performance.now() - t0,
   };
 }
 
@@ -234,3 +258,52 @@ export function seriesCsv(rows: SeriesResult[]): string {
   }
   return L.join('\n');
 }
+
+// ---------- cohort: measured penetration vs time in vivo ----------
+
+export interface CohortFit {
+  group: string;
+  n: number;
+  /** D = intercept + slope · years (OLS): slope = penetration rate (µm/year), intercept = early penetration (µm) */
+  slope: number; slopeSe: number;
+  intercept: number; interceptSe: number;
+  r2: number;
+  /** Model: mean over the group of the median remaining creep (µm), dynamic and static */
+  modelCreepDyn: number; modelCreepStat: number;
+  points: { caseId: string; years: number; D: number; sd: number }[];
+}
+
+/** Liners with a detected penetration, grouped by polyethylene, plus all together (groups with ≥ 3 liners) */
+export function cohortFits(res: SeriesResult[]): CohortFit[] {
+  const shortMat = (r: SeriesResult) => r.materialLabel.split(',')[0].split(' (')[0].trim();
+  const det = res.filter((r) => r.measured && !r.measured.notDetected && r.years > 0);
+  const groups = new Map<string, SeriesResult[]>([['All liners', det]]);
+  for (const r of det) { const g = shortMat(r); if (!groups.has(g)) groups.set(g, []); groups.get(g)!.push(r); }
+  const out: CohortFit[] = [];
+  for (const [group, rs] of groups) {
+    const n = rs.length;
+    if (n < 3) continue;
+    const x = rs.map((r) => r.years), y = rs.map((r) => r.measured!.penetrationUm);
+    const mx = x.reduce((a, b) => a + b, 0) / n, my = y.reduce((a, b) => a + b, 0) / n;
+    let sxx = 0, sxy = 0;
+    for (let i = 0; i < n; i++) { sxx += (x[i] - mx) ** 2; sxy += (x[i] - mx) * (y[i] - my); }
+    if (!(sxx > 0)) continue;
+    const slope = sxy / sxx, intercept = my - slope * mx;
+    let sse = 0, sst = 0;
+    for (let i = 0; i < n; i++) { sse += (y[i] - intercept - slope * x[i]) ** 2; sst += (y[i] - my) ** 2; }
+    const s2 = n > 2 ? sse / (n - 2) : NaN;
+    out.push({
+      group, n, slope, slopeSe: Math.sqrt(s2 / sxx), intercept, interceptSe: Math.sqrt(s2 * (1 / n + (mx * mx) / sxx)),
+      r2: sst > 0 ? 1 - sse / sst : NaN,
+      modelCreepDyn: rs.reduce((a, r) => a + r.modes.dynamic.remaining.p50, 0) / n,
+      modelCreepStat: rs.reduce((a, r) => a + r.modes.static.remaining.p50, 0) / n,
+      points: rs.map((r) => ({ caseId: r.caseId, years: r.years, D: r.measured!.penetrationUm, sd: r.measured!.sdUm })),
+    });
+  }
+  return out;
+}
+
+/** Reference values for the wear rates (literature) */
+export const LINEAR_OSTEOLYSIS_MM_PER_YEAR = 0.1;     // Dumbleton et al. 2002, J Arthroplasty 17:649
+/** Volumetric wear above which osteolysis becomes frequent (Oparaugo et al. 2001, Acta Orthop Scand 72:22) */
+export const VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR = 80;

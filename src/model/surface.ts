@@ -147,6 +147,8 @@ export interface ElevationResult {
   netRangeMm3: [number, number];
   /** Volume above the threshold on the penetration side (≈ HipWear penetration volume) */
   penetrationVolumeMm3: number;
+  /** Area penetrated beyond the threshold (mm², whole surface minus the rim band) */
+  penetrationAreaMm2: number;
   /** Area-weighted mean angle of the elevations from the load axis and from the pole (deg) */
   elevationPsiDeg: number;
   elevationThetaDeg: number;
@@ -268,11 +270,11 @@ export function elevationAnalysis(
   const nominal = rows.find((r) => r.k === kList[0] && Math.abs(r.sigmaUm - sigmaEff) < 1e-9) ?? rows[0];
   const nets = rows.map((r) => r.netMm3);
   // Penetration side and location of the elevations at the nominal threshold
-  let pen = 0, wPsi = 0, wTheta = 0, wSum = 0;
+  let pen = 0, penA = 0, wPsi = 0, wTheta = 0, wSum = 0;
   for (let v = 0; v < s.n; v++) {
     if (s.theta[v] > thetaMax) continue;
     const e = s.devUm[v] - nominal.thresholdUm;
-    if (e > 0) pen += s.area[v] * e;
+    if (e > 0) { pen += s.area[v] * e; penA += s.area[v]; }
     if (!inZone(v)) continue;
     const el = -s.devUm[v] - nominal.thresholdUm;
     if (el > 0) { const w = s.area[v] * el; wPsi += w * s.psi[v]; wTheta += w * s.theta[v]; wSum += w; }
@@ -284,6 +286,7 @@ export function elevationAnalysis(
     nominal,
     netRangeMm3: [Math.min(...nets), Math.max(...nets)],
     penetrationVolumeMm3: pen * 1e-3,
+    penetrationAreaMm2: penA,
     elevationPsiDeg: wSum > 0 ? (wPsi / wSum) * 180 / Math.PI : NaN,
     elevationThetaDeg: wSum > 0 ? (wTheta / wSum) * 180 / Math.PI : NaN,
     radiusSensitivityMm3PerUm: A * 1e-3,

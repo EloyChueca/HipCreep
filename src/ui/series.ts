@@ -6,7 +6,7 @@
 
 import type { LoadedHipWearCase } from '../io/hipwear.ts';
 import { MATERIALS, MATERIAL_IDS, THERMAL_LABEL, type MaterialId, type Irradiation, type ThermalTreatment } from '../model/materials.ts';
-import type { SeriesResult, ElevationStatus } from '../model/series.ts';
+import { cohortFits, LINEAR_OSTEOLYSIS_MM_PER_YEAR, VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR, LAW_TESTED_MAX_MPA, type SeriesResult, type ElevationStatus, type CohortFit } from '../model/series.ts';
 import type { Loading } from '../model/laws.ts';
 import { fmt, escapeHtml, cssVar } from './format.ts';
 import { svg, add, niceTicks, showTip, hideTip } from './charts.ts';
@@ -102,7 +102,12 @@ export function renderSeriesResults(root: HTMLElement, items: SeriesItem[], res:
   for (const mode of ['dynamic', 'static'] as Loading[]) renderModeSection(root, items, res, cb, mode);
   renderElevatedZone(root, res);
   renderModeComparison(root, res);
-  const sec = renderWearScenarios(root, res);
+  renderWearScenarios(root, res);
+  renderWearRates(root, res);
+  renderCohort(root, res);
+  renderContact(root, res);
+  renderBudget(root, res);
+  const sec = section(root, 'Export');
   sec.insertAdjacentHTML('beforeend', `<div class="export-row" style="margin-top:12px"><button class="btn primary" id="s-xlsx">Series (Excel)</button><button class="btn" id="s-csv">Series (CSV)</button><button class="btn" id="s-back">Edit series</button></div>`);
   (sec.querySelector('#s-csv') as HTMLButtonElement).addEventListener('click', csv);
   const bx = sec.querySelector('#s-xlsx') as HTMLButtonElement;
@@ -152,6 +157,129 @@ function renderElevatedZone(root: HTMLElement, res: SeriesResult[]): void {
   sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
     <thead><tr><th>#</th><th>Case</th><th>Load zone</th><th>Elevated area (mm²)</th><th>Elevated volume (mm³)</th><th>Above noise (mm³)</th><th>Highest point (µm)</th><th>Highest 1 mm² (µm)</th><th>Left out, outside the zone (mm³)</th><th>Noise σ (µm)</th><th>Plausible as creep</th></tr></thead>
     <tbody>${body}</tbody></table></div>`);
+}
+
+const pctS = (s: { p50: number; p5: number; p95: number } | null | undefined) => s ? `<b>${(100 * s.p50).toFixed(0)} %</b><div class="range">${(100 * s.p5).toFixed(0)} – ${(100 * s.p95).toFixed(0)} %</div>` : '—';
+/** A Stats divided by the years in vivo, as mm/year (from µm) or mm³/year */
+const rateCell = (s: { p50: number; p5: number; p95: number } | null | undefined, years: number, fromUm: boolean, thr: number) => {
+  if (!s || !(years > 0)) return '—';
+  const k = (fromUm ? 1e-3 : 1) / years, d = fromUm ? 3 : 1;
+  const hi = s.p50 * k > thr;
+  return `<b${hi ? ' class="warn-v"' : ''}>${(s.p50 * k).toFixed(d)}</b><div class="range">${(s.p5 * k).toFixed(d)} – ${(s.p95 * k).toFixed(d)}</div>`;
+};
+
+/** Wear rates, volumetric wear and the share of the penetration that is creep */
+function renderWearRates(root: HTMLElement, res: SeriesResult[]): void {
+  const sec = section(root, 'Wear rates, volumetric wear and creep share',
+    `Wear corrected for the remaining creep, both recovery scenarios pooled (median and 90 % interval). Linear wear rate = W / years in vivo (mm/year); volumetric wear = HipWear penetration volume − remaining creep volume of the model (mm³), and its rate (mm³/year). <b>Creep share</b>: remaining creep / D. Values in orange exceed ${LINEAR_OSTEOLYSIS_MM_PER_YEAR} mm/year (osteolysis rare below it; Dumbleton et al. 2002) or ${VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR} mm³/year (osteolysis frequent above it; Oparaugo et al. 2001).`);
+  const body = res.map((r, i) => {
+    const d = r.modes.dynamic, st = r.modes.static;
+    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td><td>${fmt(r.years)}</td><td>${cellD(r)}</td>
+      <td>${pctS(d.creepShare)}</td><td>${pctS(st.creepShare)}</td>
+      <td>${rateCell(d.wear, r.years, true, LINEAR_OSTEOLYSIS_MM_PER_YEAR)}</td><td>${rateCell(st.wear, r.years, true, LINEAR_OSTEOLYSIS_MM_PER_YEAR)}</td>
+      <td>${cellStat(d.wearVol)}</td><td>${cellStat(st.wearVol)}</td>
+      <td>${rateCell(d.wearVol, r.years, false, VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR)}</td><td>${rateCell(st.wearVol, r.years, false, VOLUMETRIC_OSTEOLYSIS_MM3_PER_YEAR)}</td></tr>`;
+  }).join('');
+  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
+    <thead><tr><th rowspan="2">#</th><th rowspan="2">Case</th><th rowspan="2">Years</th><th rowspan="2">D (µm)</th><th colspan="2">Creep share of D</th><th colspan="2">Linear wear rate (mm/year)</th><th colspan="2">Volumetric wear (mm³)</th><th colspan="2">Volumetric wear rate (mm³/year)</th></tr>
+    <tr><th>dynamic</th><th>static</th><th>dynamic</th><th>static</th><th>dynamic</th><th>static</th><th>dynamic</th><th>static</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`);
+}
+
+/** Cohort: measured penetration vs years in vivo, by polyethylene */
+function renderCohort(root: HTMLElement, res: SeriesResult[]): void {
+  const fits = cohortFits(res);
+  const sec = section(root, 'Cohort — penetration vs time in vivo',
+    'Measured penetration D of the liners with a detected penetration against their years in vivo, by polyethylene (straight-line least-squares fit, groups of ≥ 3 liners). As in the clinical radiographic method, the <b>slope</b> is the penetration rate of the group and the <b>intercept</b> the early penetration (creep + bedding-in). The intercept is compared with the remaining creep the model predicts for the same liners (mean of their medians): an independent check made only with these retrievals, nothing is fitted to them. With few liners per group the intervals are wide.');
+  if (!fits.length) { sec.insertAdjacentHTML('beforeend', '<p class="muted">Fewer than 3 liners with a detected penetration.</p>'); return; }
+  const rows = fits.map((f) => `<tr><td><b>${escapeHtml(f.group)}</b></td><td>${f.n}</td>
+    <td><b>${(f.slope / 1000).toFixed(3)}</b><div class="range">± ${(f.slopeSe / 1000).toFixed(3)} (SE)</div></td>
+    <td><b>${fmt(f.intercept)}</b><div class="range">± ${fmt(f.interceptSe)} (SE)</div></td><td>${Number.isFinite(f.r2) ? f.r2.toFixed(2) : '—'}</td>
+    <td>${fmt(f.modelCreepDyn)}</td><td>${fmt(f.modelCreepStat)}</td></tr>`).join('');
+  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
+    <thead><tr><th>Group</th><th>n</th><th>Penetration rate (mm/year)</th><th>Intercept: early penetration (µm)</th><th>R²</th><th>Model remaining creep, dynamic (µm)</th><th>Model remaining creep, static (µm)</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`);
+  const card = document.createElement('div');
+  card.className = 'chart-card';
+  card.style.marginTop = '14px';
+  const groups = fits.filter((f) => f.group !== 'All liners');
+  const palette = ['--series-2', '--series-1', '--series-3', '--series-4', '--text-secondary'];
+  card.innerHTML = `<div class="chart-title">Measured penetration vs years in vivo</div>
+    <div class="chart-sub">Points: D ± 2 SD of each liner (liners with a detected penetration). Lines: least-squares fit of each group (dashed: all liners).</div>
+    <div class="legend">${groups.map((f, k) => `<span class="item"><span class="swatch" style="background:${cssVar(palette[k % palette.length])}"></span>${escapeHtml(f.group)}</span>`).join('')}<span class="item">– – all liners</span></div>`;
+  cohortChart(card, fits, palette);
+  sec.appendChild(card);
+}
+
+function cohortChart(container: HTMLElement, fits: CohortFit[], palette: string[]): void {
+  const W = 760, H = 320, m = { l: 60, r: 20, t: 12, b: 40 };
+  const all = fits.find((f) => f.group === 'All liners') ?? fits[0];
+  const groups = fits.filter((f) => f.group !== 'All liners');
+  const xMax = Math.max(1, ...all.points.map((p) => p.years)) * 1.05;
+  const yMax = Math.max(1, ...all.points.map((p) => p.D + 2 * p.sd)) * 1.05;
+  const yMin = Math.min(0, ...all.points.map((p) => p.D - 2 * p.sd), ...fits.map((f) => f.intercept));
+  const X = (x: number) => m.l + (x / xMax) * (W - m.l - m.r);
+  const Y = (y: number) => H - m.b - ((y - yMin) / (yMax - yMin)) * (H - m.t - m.b);
+  const s = svg(W, H);
+  for (const t of niceTicks(yMin, yMax, 5)) {
+    add(s, 'line', { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: t === 0 ? 'axisline' : 'gridline' });
+    add(s, 'text', { x: m.l - 6, y: Y(t) + 4, 'text-anchor': 'end' }).textContent = fmt(t);
+  }
+  for (const t of niceTicks(0, xMax, 6)) add(s, 'text', { x: X(t), y: H - m.b + 16, 'text-anchor': 'middle' }).textContent = fmt(t);
+  add(s, 'text', { x: (m.l + W - m.r) / 2, y: H - 6, 'text-anchor': 'middle' }).textContent = 'years in vivo';
+  const yl = add(s, 'text', { x: 14, y: (m.t + H - m.b) / 2, 'text-anchor': 'middle', transform: `rotate(-90 14 ${(m.t + H - m.b) / 2})` });
+  yl.textContent = 'measured penetration D (µm)';
+  const line = (f: CohortFit, col: string, dash?: string) => add(s, 'line', { x1: X(0), x2: X(xMax), y1: Y(f.intercept), y2: Y(f.intercept + f.slope * xMax), stroke: col, 'stroke-width': 2, ...(dash ? { 'stroke-dasharray': dash } : {}) });
+  if (all) line(all, cssVar('--text-secondary'), '6 4');
+  const colOf = new Map<string, string>();
+  groups.forEach((f, k) => { const col = cssVar(palette[k % palette.length]); colOf.set(f.group, col); line(f, col); });
+  const seen = new Set<string>();
+  for (const f of [...groups, all]) for (const p of f.points) {
+    if (seen.has(p.caseId)) continue;
+    seen.add(p.caseId);
+    const col = colOf.get(f.group) ?? cssVar('--text-primary');
+    add(s, 'line', { x1: X(p.years), x2: X(p.years), y1: Y(p.D - 2 * p.sd), y2: Y(p.D + 2 * p.sd), stroke: col, 'stroke-opacity': 0.5 });
+    const dot = add(s, 'circle', { cx: X(p.years), cy: Y(p.D), r: 4.5, fill: col, stroke: 'var(--chart-surface)', 'stroke-width': 1.5 });
+    dot.addEventListener('mousemove', (ev) => showTip(`<b>${escapeHtml(p.caseId)}</b><div>${fmt(p.years)} years · D ${fmt(p.D)} ± ${fmt(p.sd)} µm</div>`, ev));
+    dot.addEventListener('mouseleave', hideTip);
+  }
+  container.appendChild(s);
+}
+
+/** Contact model against the measurement: pressure, contact area vs the penetrated area */
+function renderContact(root: HTMLElement, res: SeriesResult[]): void {
+  const sec = section(root, 'Contact model vs measured surface',
+    `Nominal creep model in vivo (first Monte Carlo law). <b>Peak pressure</b>: at the start and at explantation (the liner creeps and conforms). The creep laws were measured at 2–${LAW_TESTED_MAX_MPA} MPa: above it the law is extrapolated. <b>Edge loading</b>: the contact patch reaches the rim. <b>Contact area</b> of the model (static, at explantation) against the <b>penetrated area</b> measured by HipWear (deviation beyond 2σ of the noise): a ratio near 1 supports the contact model; much larger penetrated areas point to wear from other sources (impingement, a moving head) or a reference error.`);
+  const body = res.map((r, i) => {
+    const d = r.modes.dynamic.contact, st = r.modes.static.contact;
+    const ratio = r.penetratedAreaMm2 != null && st.areaMm2 > 0 ? (r.penetratedAreaMm2 / st.areaMm2).toFixed(2) : '—';
+    const flags = [d.edgeLoading || st.edgeLoading ? 'edge loading' : '', st.beyondTestedPressure ? `above ${LAW_TESTED_MAX_MPA} MPa (law extrapolated)` : ''].filter(Boolean).join(' · ');
+    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td>
+      <td><b>${fmt(d.peakInitialMPa)}</b><div class="range">→ ${fmt(d.peakFinalMPa)}</div></td><td><b>${fmt(st.peakInitialMPa)}</b><div class="range">→ ${fmt(st.peakFinalMPa)}</div></td>
+      <td>${fmt(st.halfAngleDeg)}°</td><td>${fmt(st.areaMm2)}</td><td>${r.penetratedAreaMm2 != null ? fmt(r.penetratedAreaMm2) : '—'}</td><td>${ratio}</td><td class="vd">${flags || '—'}</td></tr>`;
+  }).join('');
+  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
+    <thead><tr><th rowspan="2">#</th><th rowspan="2">Case</th><th colspan="2">Peak contact pressure (MPa), start → explantation</th><th rowspan="2">Contact half-angle</th><th rowspan="2">Model contact area (mm²)</th><th rowspan="2">Measured penetrated area (mm²)</th><th rowspan="2">Penetrated / contact</th><th rowspan="2">Flags</th></tr>
+    <tr><th>dynamic</th><th>static</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`);
+}
+
+/** Where the uncertainty of the wear comes from */
+function renderBudget(root: HTMLElement, res: SeriesResult[]): void {
+  if (!res.some((r) => r.modes.dynamic.budget)) return;
+  const sec = section(root, 'Uncertainty budget of the wear',
+    'Share of the variance of the estimated wear that comes from the measurement of D (HipWear) — the rest comes from the creep model (laws, recovery, force, material, geometry). Since W = D − remaining creep with both drawn independently, var(W) = var(D) + var(C<sub>rem</sub>). A measurement share near 100 % means a better measurement, not a better creep model, would narrow the wear interval.');
+  const bar = (f: number | null | undefined) => f == null || !Number.isFinite(f) ? '—'
+    : `<div class="budget"><span class="b-meas" style="width:${(100 * f).toFixed(1)}%"></span><span class="b-model" style="width:${(100 * (1 - f)).toFixed(1)}%"></span></div><div class="range">measurement ${(100 * f).toFixed(0)} % · model ${(100 * (1 - f)).toFixed(0)} %</div>`;
+  const body = res.map((r, i) => {
+    const d = r.modes.dynamic.budget, st = r.modes.static.budget;
+    return `<tr><td>${i + 1}</td><td>${cellCase(r)}</td><td>${cellD(r)}</td><td>${bar(d?.measurementShare)}</td><td>${bar(st?.measurementShare)}</td><td>${bar(d?.measurementShareVolume)}</td><td>${bar(st?.measurementShareVolume)}</td></tr>`;
+  }).join('');
+  sec.insertAdjacentHTML('beforeend', `<div class="table-wrap"><table class="data series-res">
+    <thead><tr><th rowspan="2">#</th><th rowspan="2">Case</th><th rowspan="2">D (µm)</th><th colspan="2">Linear wear</th><th colspan="2">Volumetric wear</th></tr>
+    <tr><th>dynamic</th><th>static</th><th>dynamic</th><th>static</th></tr></thead>
+    <tbody>${body}</tbody></table></div>
+    <div class="legend" style="margin-top:8px"><span class="item"><span class="swatch" style="background:${cssVar('--series-4')}"></span>measurement (HipWear D)</span><span class="item"><span class="swatch" style="background:${cssVar('--series-1')}"></span>creep model</span></div>`);
 }
 
 /** Dynamic vs static, liner by liner */
